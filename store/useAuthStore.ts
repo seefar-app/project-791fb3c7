@@ -369,13 +369,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       
       console.log('Session verified for avatar upload');
       
-      // Read file as base64
+      // Read file as base64 using correct FileSystem.EncodingType.Base64
       const base64 = await FileSystem.readAsStringAsync(imageUri, {
         encoding: FileSystem.EncodingType.Base64,
       });
       
+      console.log('Image read as base64, length:', base64.length);
+      
       // Convert base64 to ArrayBuffer using native Uint8Array
       const arrayBuffer = base64ToArrayBuffer(base64);
+      
+      console.log('Base64 converted to ArrayBuffer, byteLength:', arrayBuffer.byteLength);
       
       // Generate unique filename
       const fileExt = imageUri.split('.').pop() || 'jpg';
