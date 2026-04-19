@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { User } from '@/types';
-import { MOCK_USER } from '@/constants/Data';
+import { supabase } from '@/lib/supabase';
 
 interface AuthState {
   user: User | null;
@@ -17,6 +17,18 @@ interface AuthState {
   updateProfile: (updates: { name: string; email: string; phone: string }) => Promise<boolean>;
 }
 
+const mapDatabaseUserToUser = (dbUser: any): User => ({
+  id: dbUser.id,
+  name: dbUser.name,
+  email: dbUser.email,
+  phone: dbUser.phone,
+  avatar: dbUser.avatar,
+  createdAt: new Date(dbUser.createdAt),
+  totalPointsEarned: dbUser.totalPointsEarned,
+  currentPoints: dbUser.currentPoints,
+  tierLevel: dbUser.tierLevel,
+});
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isAuthenticated: false,
@@ -27,33 +39,70 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       set({ isLoading: true, authError: null });
       
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      if (!email.trim()) {
+        set({ authError: 'Please enter your email address.', isLoading: false });
+        return false;
+      }
       
-      // Mock validation
       if (!email.includes('@')) {
-        set({ authError: 'Please enter a valid email address', isLoading: false });
+        set({ authError: 'Please enter a valid email address.', isLoading: false });
+        return false;
+      }
+      
+      if (!password) {
+        set({ authError: 'Please enter your password.', isLoading: false });
         return false;
       }
       
       if (password.length < 6) {
-        set({ authError: 'Password must be at least 6 characters', isLoading: false });
+        set({ authError: 'Password must be at least 6 characters.', isLoading: false });
         return false;
       }
       
-      // Success - use mock user
-      set({ 
-        user: MOCK_USER, 
-        isAuthenticated: true, 
+      const { data: authData, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      
+      if (error) {
+        let friendlyMessage = 'Login failed. Please try again.';
+        if (error.message.includes('Invalid login credentials')) {
+          friendlyMessage = 'Incorrect email or password. Please try again.';
+        } else if (error.message.includes('Email not confirmed')) {
+          friendlyMessage = 'Please confirm your email before logging in.';
+        }
+        set({ authError: friendlyMessage, isLoading: false });
+        return false;
+      }
+      
+      if (!authData.user) {
+        set({ authError: 'Login failed. Please try again.', isLoading: false });
+        return false;
+      }
+      
+      const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', authData.user.id)
+        .single();
+      
+      if (profileError || !profile) {
+        set({ authError: 'Failed to load user profile.', isLoading: false });
+        return false;
+      }
+      
+      set({
+        user: mapDatabaseUserToUser(profile),
+        isAuthenticated: true,
         isLoading: false,
-        authError: null 
+        authError: null,
       });
       
       return true;
     } catch (error) {
-      set({ 
-        authError: 'Login failed. Please try again.', 
-        isLoading: false 
+      set({
+        authError: 'Login failed. Please try again.',
+        isLoading: false,
       });
       return false;
     }
@@ -63,75 +112,142 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       set({ isLoading: true, authError: null });
       
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1800));
-      
-      // Mock validation
       if (!name.trim()) {
-        set({ authError: 'Please enter your name', isLoading: false });
+        set({ authError: 'Please enter your name.', isLoading: false });
+        return false;
+      }
+      
+      if (!email.trim()) {
+        set({ authError: 'Please enter your email address.', isLoading: false });
         return false;
       }
       
       if (!email.includes('@')) {
-        set({ authError: 'Please enter a valid email address', isLoading: false });
+        set({ authError: 'Please enter a valid email address.', isLoading: false });
+        return false;
+      }
+      
+      if (!password) {
+        set({ authError: 'Please enter a password.', isLoading: false });
         return false;
       }
       
       if (password.length < 6) {
-        set({ authError: 'Password must be at least 6 characters', isLoading: false });
+        set({ authError: 'Password must be at least 6 characters.', isLoading: false });
         return false;
       }
       
-      // Create new user
-      const newUser: User = {
-        id: `user-${Date.now()}`,
-        name,
-        email,
-        phone,
-        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=ec4899&color=fff&size=200`,
-        createdAt: new Date(),
-        totalPointsEarned: 50, // Welcome bonus
-        currentPoints: 50,
-        tierLevel: 'bronze',
-      };
+      if (!phone.trim()) {
+        set({ authError: 'Please enter your phone number.', isLoading: false });
+        return false;
+      }
       
-      set({ 
-        user: newUser, 
-        isAuthenticated: true, 
+      const { data: authData, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name,
+            phone,
+          },
+        },
+      });
+      
+      if (error) {
+        let friendlyMessage = 'Signup failed. Please try again.';
+        if (error.message.includes('already registered')) {
+          friendlyMessage = 'An account with this email already exists.';
+        } else if (error.message.includes('Password')) {
+          friendlyMessage = 'Password does not meet requirements.';
+        }
+        set({ authError: friendlyMessage, isLoading: false });
+        return false;
+      }
+      
+      if (!authData.user) {
+        set({ authError: 'Signup failed. Please try again.', isLoading: false });
+        return false;
+      }
+      
+      const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', authData.user.id)
+        .single();
+      
+      if (profileError || !profile) {
+        set({ authError: 'Failed to create user profile.', isLoading: false });
+        return false;
+      }
+      
+      set({
+        user: mapDatabaseUserToUser(profile),
+        isAuthenticated: true,
         isLoading: false,
-        authError: null 
+        authError: null,
       });
       
       return true;
     } catch (error) {
-      set({ 
-        authError: 'Signup failed. Please try again.', 
-        isLoading: false 
+      set({
+        authError: 'Signup failed. Please try again.',
+        isLoading: false,
       });
       return false;
     }
   },
 
   logout: async () => {
-    set({ isLoading: true });
-    await new Promise(resolve => setTimeout(resolve, 500));
-    set({ 
-      user: null, 
-      isAuthenticated: false, 
-      isLoading: false,
-      authError: null 
-    });
+    try {
+      set({ isLoading: true });
+      await supabase.auth.signOut();
+      set({
+        user: null,
+        isAuthenticated: false,
+        isLoading: false,
+        authError: null,
+      });
+    } catch (error) {
+      set({
+        user: null,
+        isAuthenticated: false,
+        isLoading: false,
+        authError: null,
+      });
+    }
   },
 
   initializeAuth: async () => {
     try {
       set({ isLoading: true });
-      // Simulate checking stored auth
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      // For demo, start unauthenticated
-      set({ isLoading: false });
+      
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !sessionData.session) {
+        set({ isLoading: false, isAuthenticated: false });
+        return;
+      }
+      
+      const userId = sessionData.session.user.id;
+      
+      const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      
+      if (profileError || !profile) {
+        set({ isLoading: false, isAuthenticated: false });
+        return;
+      }
+      
+      set({
+        user: mapDatabaseUserToUser(profile),
+        isAuthenticated: true,
+        isLoading: false,
+      });
     } catch (error) {
-      set({ isLoading: false });
+      set({ isLoading: false, isAuthenticated: false });
     }
   },
 
@@ -148,41 +264,69 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const { user } = get();
     
     if (!user) {
-      set({ authError: 'User not found' });
+      set({ authError: 'User not found.' });
       return false;
     }
     
     try {
       set({ isLoading: true, authError: null });
       
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      if (!updates.name.trim()) {
+        set({ authError: 'Please enter your name.', isLoading: false });
+        return false;
+      }
       
-      // Update avatar URL if name changed
-      const newAvatar = updates.name !== user.name
-        ? `https://ui-avatars.com/api/?name=${encodeURIComponent(updates.name)}&background=ec4899&color=fff&size=200`
-        : user.avatar;
+      if (!updates.email.trim()) {
+        set({ authError: 'Please enter your email address.', isLoading: false });
+        return false;
+      }
       
-      // Update user with new data
+      if (!updates.email.includes('@')) {
+        set({ authError: 'Please enter a valid email address.', isLoading: false });
+        return false;
+      }
+      
+      if (!updates.phone.trim()) {
+        set({ authError: 'Please enter your phone number.', isLoading: false });
+        return false;
+      }
+      
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({
+          name: updates.name,
+          email: updates.email,
+          phone: updates.phone,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id);
+      
+      if (updateError) {
+        set({
+          authError: 'Failed to update profile. Please try again.',
+          isLoading: false,
+        });
+        return false;
+      }
+      
       const updatedUser: User = {
         ...user,
         name: updates.name,
         email: updates.email,
         phone: updates.phone,
-        avatar: newAvatar,
       };
       
-      set({ 
-        user: updatedUser, 
+      set({
+        user: updatedUser,
         isLoading: false,
-        authError: null 
+        authError: null,
       });
       
       return true;
     } catch (error) {
-      set({ 
-        authError: 'Failed to update profile. Please try again.', 
-        isLoading: false 
+      set({
+        authError: 'Failed to update profile. Please try again.',
+        isLoading: false,
       });
       return false;
     }

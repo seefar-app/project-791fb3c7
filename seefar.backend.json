@@ -1,0 +1,361 @@
+{
+  "version": "1.0",
+  "generatedAt": "2026-04-19T10:26:41.795Z",
+  "schema": {
+    "sql": "-- Supabase DDL for Seefar e-commerce app\n\n-- Enable UUID extension\nCREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";\n\n-- Users table\nCREATE TABLE IF NOT EXISTS public.users (\n  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,\n  phone text,\n  email text,\n  name text,\n  avatar text,\n  \"createdAt\" timestamptz DEFAULT now(),\n  \"totalPointsEarned\" integer DEFAULT 0,\n  \"currentPoints\" integer DEFAULT 0,\n  \"tierLevel\" text DEFAULT 'bronze',\n  updated_at timestamptz DEFAULT now()\n);\n\nALTER TABLE public.users ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY \"Users can view own profile\" ON public.users\n  FOR SELECT USING (auth.uid() = id);\n\nCREATE POLICY \"Users can update own profile\" ON public.users\n  FOR UPDATE USING (auth.uid() = id);\n\nCREATE INDEX IF NOT EXISTS idx_users_email ON public.users(email);\nCREATE INDEX IF NOT EXISTS idx_users_phone ON public.users(phone);\n\n-- Menu items table\nCREATE TABLE IF NOT EXISTS public.menu_items (\n  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n  name text NOT NULL,\n  description text,\n  price numeric NOT NULL,\n  category text,\n  image text,\n  available boolean DEFAULT true,\n  calories integer,\n  popular boolean DEFAULT false,\n  created_at timestamptz DEFAULT now()\n);\n\nALTER TABLE public.menu_items ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY \"Menu items are viewable by all\" ON public.menu_items\n  FOR SELECT USING (true);\n\nCREATE INDEX IF NOT EXISTS idx_menu_items_category ON public.menu_items(category);\nCREATE INDEX IF NOT EXISTS idx_menu_items_available ON public.menu_items(available);\n\n-- Customizations table\nCREATE TABLE IF NOT EXISTS public.customizations (\n  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n  \"menuItemId\" uuid NOT NULL REFERENCES public.menu_items(id) ON DELETE CASCADE,\n  name text NOT NULL,\n  required boolean DEFAULT false,\n  \"maxSelections\" integer,\n  created_at timestamptz DEFAULT now()\n);\n\nALTER TABLE public.customizations ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY \"Customizations are viewable by all\" ON public.customizations\n  FOR SELECT USING (true);\n\nCREATE INDEX IF NOT EXISTS idx_customizations_menu_item ON public.customizations(\"menuItemId\");\n\n-- Customization options table\nCREATE TABLE IF NOT EXISTS public.customization_options (\n  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n  \"customizationId\" uuid NOT NULL REFERENCES public.customizations(id) ON DELETE CASCADE,\n  name text NOT NULL,\n  \"priceModifier\" numeric DEFAULT 0,\n  created_at timestamptz DEFAULT now()\n);\n\nALTER TABLE public.customization_options ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY \"Customization options are viewable by all\" ON public.customization_options\n  FOR SELECT USING (true);\n\nCREATE INDEX IF NOT EXISTS idx_customization_options_customization ON public.customization_options(\"customizationId\");\n\n-- Transactions table\nCREATE TABLE IF NOT EXISTS public.transactions (\n  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n  \"userId\" uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,\n  amount numeric NOT NULL,\n  \"pointsEarned\" integer DEFAULT 0,\n  \"pointsRedeemed\" integer DEFAULT 0,\n  timestamp timestamptz DEFAULT now(),\n  \"receiptUrl\" text,\n  status text DEFAULT 'completed',\n  \"storeName\" text,\n  created_at timestamptz DEFAULT now()\n);\n\nALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY \"Users can view own transactions\" ON public.transactions\n  FOR SELECT USING (auth.uid() = \"userId\");\n\nCREATE INDEX IF NOT EXISTS idx_transactions_user ON public.transactions(\"userId\");\nCREATE INDEX IF NOT EXISTS idx_transactions_timestamp ON public.transactions(timestamp);\n\n-- Order items table\nCREATE TABLE IF NOT EXISTS public.order_items (\n  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n  \"transactionId\" uuid NOT NULL REFERENCES public.transactions(id) ON DELETE CASCADE,\n  \"menuItemId\" uuid NOT NULL REFERENCES public.menu_items(id) ON DELETE RESTRICT,\n  quantity integer NOT NULL,\n  subtotal numeric NOT NULL,\n  created_at timestamptz DEFAULT now()\n);\n\nALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY \"Users can view own order items\" ON public.order_items\n  FOR SELECT USING (\n    \"transactionId\" IN (\n      SELECT id FROM public.transactions WHERE \"userId\" = auth.uid()\n    )\n  );\n\nCREATE INDEX IF NOT EXISTS idx_order_items_transaction ON public.order_items(\"transactionId\");\nCREATE INDEX IF NOT EXISTS idx_order_items_menu_item ON public.order_items(\"menuItemId\");\n\n-- Rewards table\nCREATE TABLE IF NOT EXISTS public.rewards (\n  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n  name text NOT NULL,\n  \"pointsRequired\" integer NOT NULL,\n  description text,\n  image text,\n  category text,\n  active boolean DEFAULT true,\n  \"expiryDays\" integer,\n  created_at timestamptz DEFAULT now()\n);\n\nALTER TABLE public.rewards ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY \"Rewards are viewable by all\" ON public.rewards\n  FOR SELECT USING (true);\n\nCREATE INDEX IF NOT EXISTS idx_rewards_active ON public.rewards(active);\n\n-- User redemptions table\nCREATE TABLE IF NOT EXISTS public.user_redemptions (\n  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n  \"userId\" uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,\n  \"rewardId\" uuid NOT NULL REFERENCES public.rewards(id) ON DELETE RESTRICT,\n  \"redeemedAt\" timestamptz DEFAULT now(),\n  \"expiryDate\" timestamptz,\n  status text DEFAULT 'active',\n  code text,\n  created_at timestamptz DEFAULT now()\n);\n\nALTER TABLE public.user_redemptions ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY \"Users can view own redemptions\" ON public.user_redemptions\n  FOR SELECT USING (auth.uid() = \"userId\");\n\nCREATE POLICY \"Users can insert own redemptions\" ON public.user_redemptions\n  FOR INSERT WITH CHECK (auth.uid() = \"userId\");\n\nCREATE INDEX IF NOT EXISTS idx_user_redemptions_user ON public.user_redemptions(\"userId\");\nCREATE INDEX IF NOT EXISTS idx_user_redemptions_reward ON public.user_redemptions(\"rewardId\");\nCREATE INDEX IF NOT EXISTS idx_user_redemptions_status ON public.user_redemptions(status);\n\n-- Payment methods table\nCREATE TABLE IF NOT EXISTS public.payment_methods (\n  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n  \"userId\" uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,\n  type text NOT NULL,\n  \"last4Digits\" text,\n  \"cardHolder\" text,\n  \"expiryDate\" text,\n  \"isDefault\" boolean DEFAULT false,\n  created_at timestamptz DEFAULT now()\n);\n\nALTER TABLE public.payment_methods ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY \"Users can view own payment methods\" ON public.payment_methods\n  FOR SELECT USING (auth.uid() = \"userId\");\n\nCREATE POLICY \"Users can insert own payment methods\" ON public.payment_methods\n  FOR INSERT WITH CHECK (auth.uid() = \"userId\");\n\nCREATE POLICY \"Users can update own payment methods\" ON public.payment_methods\n  FOR UPDATE USING (auth.uid() = \"userId\");\n\nCREATE POLICY \"Users can delete own payment methods\" ON public.payment_methods\n  FOR DELETE USING (auth.uid() = \"userId\");\n\nCREATE INDEX IF NOT EXISTS idx_payment_methods_user ON public.payment_methods(\"userId\");\n\n-- Handle new user creation from auth.users\nCREATE OR REPLACE FUNCTION public.handle_new_user()\nRETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$\nBEGIN\n  INSERT INTO public.users (id, email, phone, name, avatar, \"createdAt\", \"totalPointsEarned\", \"currentPoints\", \"tierLevel\", updated_at)\n  VALUES (\n    NEW.id,\n    NEW.email,\n    NEW.raw_user_meta_data ->> 'phone',\n    NEW.raw_user_meta_data ->> 'name',\n    NEW.raw_user_meta_data ->> 'avatar',\n    now(),\n    COALESCE((NEW.raw_user_meta_data ->> 'totalPointsEarned')::integer, 0),\n    COALESCE((NEW.raw_user_meta_data ->> 'currentPoints')::integer, 0),\n    COALESCE(NEW.raw_user_meta_data ->> 'tierLevel', 'bronze'),\n    now()\n  )\n  ON CONFLICT (id) DO NOTHING;\n  RETURN NEW;\nEND; $$;\n\nDROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;\nCREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();",
+    "tables": [
+      {
+        "name": "users",
+        "columns": [
+          {
+            "name": "id",
+            "type": "uuid"
+          },
+          {
+            "name": "phone",
+            "type": "text"
+          },
+          {
+            "name": "email",
+            "type": "text"
+          },
+          {
+            "name": "name",
+            "type": "text"
+          },
+          {
+            "name": "avatar",
+            "type": "text"
+          },
+          {
+            "name": "createdAt",
+            "type": "timestamptz"
+          },
+          {
+            "name": "totalPointsEarned",
+            "type": "integer"
+          },
+          {
+            "name": "currentPoints",
+            "type": "integer"
+          },
+          {
+            "name": "tierLevel",
+            "type": "text"
+          },
+          {
+            "name": "updated_at",
+            "type": "timestamptz"
+          }
+        ]
+      },
+      {
+        "name": "menu_items",
+        "columns": [
+          {
+            "name": "id",
+            "type": "uuid"
+          },
+          {
+            "name": "name",
+            "type": "text"
+          },
+          {
+            "name": "description",
+            "type": "text"
+          },
+          {
+            "name": "price",
+            "type": "numeric"
+          },
+          {
+            "name": "category",
+            "type": "text"
+          },
+          {
+            "name": "image",
+            "type": "text"
+          },
+          {
+            "name": "available",
+            "type": "boolean"
+          },
+          {
+            "name": "calories",
+            "type": "integer"
+          },
+          {
+            "name": "popular",
+            "type": "boolean"
+          },
+          {
+            "name": "created_at",
+            "type": "timestamptz"
+          }
+        ]
+      },
+      {
+        "name": "customizations",
+        "columns": [
+          {
+            "name": "id",
+            "type": "uuid"
+          },
+          {
+            "name": "menuItemId",
+            "type": "uuid"
+          },
+          {
+            "name": "name",
+            "type": "text"
+          },
+          {
+            "name": "required",
+            "type": "boolean"
+          },
+          {
+            "name": "maxSelections",
+            "type": "integer"
+          },
+          {
+            "name": "created_at",
+            "type": "timestamptz"
+          }
+        ]
+      },
+      {
+        "name": "customization_options",
+        "columns": [
+          {
+            "name": "id",
+            "type": "uuid"
+          },
+          {
+            "name": "customizationId",
+            "type": "uuid"
+          },
+          {
+            "name": "name",
+            "type": "text"
+          },
+          {
+            "name": "priceModifier",
+            "type": "numeric"
+          },
+          {
+            "name": "created_at",
+            "type": "timestamptz"
+          }
+        ]
+      },
+      {
+        "name": "transactions",
+        "columns": [
+          {
+            "name": "id",
+            "type": "uuid"
+          },
+          {
+            "name": "userId",
+            "type": "uuid"
+          },
+          {
+            "name": "amount",
+            "type": "numeric"
+          },
+          {
+            "name": "pointsEarned",
+            "type": "integer"
+          },
+          {
+            "name": "pointsRedeemed",
+            "type": "integer"
+          },
+          {
+            "name": "timestamp",
+            "type": "timestamptz"
+          },
+          {
+            "name": "receiptUrl",
+            "type": "text"
+          },
+          {
+            "name": "status",
+            "type": "text"
+          },
+          {
+            "name": "storeName",
+            "type": "text"
+          },
+          {
+            "name": "created_at",
+            "type": "timestamptz"
+          }
+        ]
+      },
+      {
+        "name": "order_items",
+        "columns": [
+          {
+            "name": "id",
+            "type": "uuid"
+          },
+          {
+            "name": "transactionId",
+            "type": "uuid"
+          },
+          {
+            "name": "menuItemId",
+            "type": "uuid"
+          },
+          {
+            "name": "quantity",
+            "type": "integer"
+          },
+          {
+            "name": "subtotal",
+            "type": "numeric"
+          },
+          {
+            "name": "created_at",
+            "type": "timestamptz"
+          }
+        ]
+      },
+      {
+        "name": "rewards",
+        "columns": [
+          {
+            "name": "id",
+            "type": "uuid"
+          },
+          {
+            "name": "name",
+            "type": "text"
+          },
+          {
+            "name": "pointsRequired",
+            "type": "integer"
+          },
+          {
+            "name": "description",
+            "type": "text"
+          },
+          {
+            "name": "image",
+            "type": "text"
+          },
+          {
+            "name": "category",
+            "type": "text"
+          },
+          {
+            "name": "active",
+            "type": "boolean"
+          },
+          {
+            "name": "expiryDays",
+            "type": "integer"
+          },
+          {
+            "name": "created_at",
+            "type": "timestamptz"
+          }
+        ]
+      },
+      {
+        "name": "user_redemptions",
+        "columns": [
+          {
+            "name": "id",
+            "type": "uuid"
+          },
+          {
+            "name": "userId",
+            "type": "uuid"
+          },
+          {
+            "name": "rewardId",
+            "type": "uuid"
+          },
+          {
+            "name": "redeemedAt",
+            "type": "timestamptz"
+          },
+          {
+            "name": "expiryDate",
+            "type": "timestamptz"
+          },
+          {
+            "name": "status",
+            "type": "text"
+          },
+          {
+            "name": "code",
+            "type": "text"
+          },
+          {
+            "name": "created_at",
+            "type": "timestamptz"
+          }
+        ]
+      },
+      {
+        "name": "payment_methods",
+        "columns": [
+          {
+            "name": "id",
+            "type": "uuid"
+          },
+          {
+            "name": "userId",
+            "type": "uuid"
+          },
+          {
+            "name": "type",
+            "type": "text"
+          },
+          {
+            "name": "last4Digits",
+            "type": "text"
+          },
+          {
+            "name": "cardHolder",
+            "type": "text"
+          },
+          {
+            "name": "expiryDate",
+            "type": "text"
+          },
+          {
+            "name": "isDefault",
+            "type": "boolean"
+          },
+          {
+            "name": "created_at",
+            "type": "timestamptz"
+          }
+        ]
+      }
+    ]
+  },
+  "auth": {
+    "EXTERNAL_EMAIL_ENABLED": true,
+    "MAILER_AUTOCONFIRM": true
+  },
+  "storage": {
+    "buckets": [
+      {
+        "name": "avatars",
+        "public": true,
+        "fileSizeLimit": 5242880
+      }
+    ]
+  },
+  "supabase": {
+    "projectRef": "dwtnixncpfakceqyyezq",
+    "projectUrl": "https://dwtnixncpfakceqyyezq.supabase.co",
+    "anonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR3dG5peG5jcGZha2NlcXl5ZXpxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY1NjU5NzYsImV4cCI6MjA5MjE0MTk3Nn0.b1uIlKXMfvgRWNmfX885zUu7OBEvlzLNzkVV6euq4Jg",
+    "status": "ready"
+  }
+}

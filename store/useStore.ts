@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { CartItem, MenuItem, Transaction, Reward, UserRedemption, PaymentMethod } from '@/types';
-import { MENU_ITEMS, REWARDS, MOCK_TRANSACTIONS, MOCK_PAYMENT_METHODS, MOCK_REDEMPTIONS } from '@/constants/Data';
+import { supabase } from '@/lib/supabase';
 
 interface StoreState {
   // Menu
@@ -44,7 +44,65 @@ interface StoreState {
   fetchMenu: () => Promise<void>;
   fetchTransactions: () => Promise<void>;
   fetchRewards: () => Promise<void>;
+  fetchPaymentMethods: () => Promise<void>;
+  fetchUserRedemptions: () => Promise<void>;
 }
+
+const mapDatabaseMenuItemToMenuItem = (item: any): MenuItem => ({
+  id: item.id,
+  name: item.name,
+  description: item.description,
+  price: parseFloat(item.price),
+  category: item.category,
+  image: item.image,
+  available: item.available,
+  calories: item.calories,
+  popular: item.popular,
+});
+
+const mapDatabaseRewardToReward = (reward: any): Reward => ({
+  id: reward.id,
+  name: reward.name,
+  pointsRequired: reward.pointsRequired,
+  description: reward.description,
+  image: reward.image,
+  category: reward.category,
+  active: reward.active,
+  expiryDays: reward.expiryDays,
+});
+
+const mapDatabaseTransactionToTransaction = (transaction: any): Transaction => ({
+  id: transaction.id,
+  userId: transaction.userId,
+  amount: parseFloat(transaction.amount),
+  pointsEarned: transaction.pointsEarned,
+  pointsRedeemed: transaction.pointsRedeemed,
+  items: [],
+  timestamp: new Date(transaction.timestamp),
+  receiptUrl: transaction.receiptUrl,
+  status: transaction.status,
+  storeName: transaction.storeName,
+});
+
+const mapDatabasePaymentMethodToPaymentMethod = (method: any): PaymentMethod => ({
+  id: method.id,
+  userId: method.userId,
+  type: method.type,
+  last4Digits: method.last4Digits,
+  cardHolder: method.cardHolder,
+  expiryDate: method.expiryDate,
+  isDefault: method.isDefault,
+});
+
+const mapDatabaseUserRedemptionToUserRedemption = (redemption: any, reward: Reward): UserRedemption => ({
+  id: redemption.id,
+  userId: redemption.userId,
+  reward,
+  redeemedAt: new Date(redemption.redeemedAt),
+  expiryDate: redemption.expiryDate ? new Date(redemption.expiryDate) : null,
+  status: redemption.status,
+  code: redemption.code,
+});
 
 export const useStore = create<StoreState>((set, get) => ({
   // Initial state
@@ -55,9 +113,9 @@ export const useStore = create<StoreState>((set, get) => ({
   pointsToEarn: 0,
   transactions: [],
   rewards: [],
-  userRedemptions: MOCK_REDEMPTIONS,
-  paymentMethods: MOCK_PAYMENT_METHODS,
-  selectedPaymentMethod: MOCK_PAYMENT_METHODS[0],
+  userRedemptions: [],
+  paymentMethods: [],
+  selectedPaymentMethod: null,
   pointsToRedeem: 0,
   isLoadingMenu: false,
   isLoadingTransactions: false,
@@ -141,28 +199,77 @@ export const useStore = create<StoreState>((set, get) => ({
     try {
       set({ isProcessingPayment: true });
       
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        set({ isProcessingPayment: false });
+        return false;
+      }
+
+      const { cart, cartTotal, pointsToEarn, pointsToRedeem } = get();
       
-      const { cart, cartTotal, pointsToEarn, pointsToRedeem, transactions } = get();
+      const finalAmount = Math.max(0, cartTotal - (pointsToRedeem * 0.01));
       
-      const newTransaction: Transaction = {
-        id: `txn-${Date.now()}`,
-        userId: 'user-001',
-        amount: Math.max(0, cartTotal - (pointsToRedeem * 0.01)),
-        pointsEarned: pointsToEarn,
-        pointsRedeemed: pointsToRedeem,
-        items: cart.map(c => ({
-          menuItem: c.menuItem,
-          quantity: c.quantity,
-          customizations: [],
-          subtotal: c.subtotal,
-        })),
-        timestamp: new Date(),
-        receiptUrl: `receipt-${Date.now()}`,
-        status: 'completed',
-        storeName: 'BrewRewards Downtown',
-      };
-      
+      // Create transaction
+      const { data: transactionData, error: transactionError } = await supabase
+        .from('transactions')
+        .insert({
+          userId: user.id,
+          amount: finalAmount,
+          pointsEarned: pointsToEarn,
+          pointsRedeemed: pointsToRedeem,
+          status: 'completed',
+          storeName: 'BrewRewards Downtown',
+        })
+        .select()
+        .single();
+
+      if (transactionError || !transactionData) {
+        set({ isProcessingPayment: false });
+        return false;
+      }
+
+      // Create order items
+      const orderItemsToInsert = cart.map(c => ({
+        transactionId: transactionData.id,
+        menuItemId: c.menuItem.id,
+        quantity: c.quantity,
+        subtotal: c.subtotal,
+      }));
+
+      if (orderItemsToInsert.length > 0) {
+        const { error: orderItemsError } = await supabase
+          .from('order_items')
+          .insert(orderItemsToInsert);
+
+        if (orderItemsError) {
+          set({ isProcessingPayment: false });
+          return false;
+        }
+      }
+
+      // Update user points
+      const { data: userData } = await supabase
+        .from('users')
+        .select('currentPoints, totalPointsEarned')
+        .eq('id', user.id)
+        .single();
+
+      if (userData) {
+        const newCurrentPoints = Math.max(0, (userData.currentPoints || 0) - pointsToRedeem + pointsToEarn);
+        const newTotalPointsEarned = (userData.totalPointsEarned || 0) + pointsToEarn;
+
+        await supabase
+          .from('users')
+          .update({
+            currentPoints: newCurrentPoints,
+            totalPointsEarned: newTotalPointsEarned,
+          })
+          .eq('id', user.id);
+      }
+
+      const newTransaction = mapDatabaseTransactionToTransaction(transactionData);
+      const { transactions } = get();
+
       set({ 
         transactions: [newTransaction, ...transactions],
         cart: [],
@@ -181,20 +288,51 @@ export const useStore = create<StoreState>((set, get) => ({
 
   redeemReward: async (reward) => {
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return null;
+      }
+
+      const expiryDate = reward.expiryDays 
+        ? new Date(Date.now() + reward.expiryDays * 24 * 60 * 60 * 1000)
+        : null;
+
+      const code = `BREW-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+      const { data: redemptionData, error } = await supabase
+        .from('user_redemptions')
+        .insert({
+          userId: user.id,
+          rewardId: reward.id,
+          expiryDate: expiryDate?.toISOString(),
+          status: 'active',
+          code,
+        })
+        .select()
+        .single();
+
+      if (error || !redemptionData) {
+        return null;
+      }
+
+      // Update user points
+      const { data: userData } = await supabase
+        .from('users')
+        .select('currentPoints')
+        .eq('id', user.id)
+        .single();
+
+      if (userData) {
+        const newCurrentPoints = Math.max(0, (userData.currentPoints || 0) - reward.pointsRequired);
+        await supabase
+          .from('users')
+          .update({ currentPoints: newCurrentPoints })
+          .eq('id', user.id);
+      }
+
+      const newRedemption = mapDatabaseUserRedemptionToUserRedemption(redemptionData, reward);
       const { userRedemptions } = get();
-      
-      const newRedemption: UserRedemption = {
-        id: `red-${Date.now()}`,
-        userId: 'user-001',
-        reward,
-        redeemedAt: new Date(),
-        expiryDate: new Date(Date.now() + reward.expiryDays * 24 * 60 * 60 * 1000),
-        status: 'active',
-        code: `BREW-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
-      };
-      
+
       set({ userRedemptions: [newRedemption, ...userRedemptions] });
       
       return newRedemption;
@@ -204,19 +342,124 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   fetchMenu: async () => {
-    set({ isLoadingMenu: true });
-    await new Promise(resolve => setTimeout(resolve, 800));
-    set({ menuItems: MENU_ITEMS, isLoadingMenu: false });
+    try {
+      set({ isLoadingMenu: true });
+      
+      const { data, error } = await supabase
+        .from('menu_items')
+        .select('*')
+        .eq('available', true);
+
+      if (error) {
+        set({ isLoadingMenu: false });
+        return;
+      }
+
+      const menuItems = (data || []).map(mapDatabaseMenuItemToMenuItem);
+      set({ menuItems, isLoadingMenu: false });
+    } catch (error) {
+      set({ isLoadingMenu: false });
+    }
   },
 
   fetchTransactions: async () => {
-    set({ isLoadingTransactions: true });
-    await new Promise(resolve => setTimeout(resolve, 800));
-    set({ transactions: MOCK_TRANSACTIONS, isLoadingTransactions: false });
+    try {
+      set({ isLoadingTransactions: true });
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        set({ isLoadingTransactions: false });
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('userId', user.id)
+        .order('timestamp', { ascending: false });
+
+      if (error) {
+        set({ isLoadingTransactions: false });
+        return;
+      }
+
+      const transactions = (data || []).map(mapDatabaseTransactionToTransaction);
+      set({ transactions, isLoadingTransactions: false });
+    } catch (error) {
+      set({ isLoadingTransactions: false });
+    }
   },
 
   fetchRewards: async () => {
-    await new Promise(resolve => setTimeout(resolve, 500));
-    set({ rewards: REWARDS });
+    try {
+      const { data, error } = await supabase
+        .from('rewards')
+        .select('*')
+        .eq('active', true);
+
+      if (error) {
+        return;
+      }
+
+      const rewards = (data || []).map(mapDatabaseRewardToReward);
+      set({ rewards });
+    } catch (error) {
+      // Handle error silently
+    }
+  },
+
+  fetchPaymentMethods: async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('payment_methods')
+        .select('*')
+        .eq('userId', user.id);
+
+      if (error) {
+        return;
+      }
+
+      const paymentMethods = (data || []).map(mapDatabasePaymentMethodToPaymentMethod);
+      const defaultMethod = paymentMethods.find(m => m.isDefault) || paymentMethods[0] || null;
+      
+      set({ paymentMethods, selectedPaymentMethod: defaultMethod });
+    } catch (error) {
+      // Handle error silently
+    }
+  },
+
+  fetchUserRedemptions: async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('user_redemptions')
+        .select('*, rewards(*)')
+        .eq('userId', user.id)
+        .eq('status', 'active');
+
+      if (error) {
+        return;
+      }
+
+      const userRedemptions = (data || []).map(redemption => 
+        mapDatabaseUserRedemptionToUserRedemption(
+          redemption,
+          mapDatabaseRewardToReward(redemption.rewards)
+        )
+      );
+      
+      set({ userRedemptions });
+    } catch (error) {
+      // Handle error silently
+    }
   },
 }));
