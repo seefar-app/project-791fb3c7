@@ -199,78 +199,104 @@ export const useStore = create<StoreState>((set, get) => ({
     try {
       set({ isProcessingPayment: true });
       
+      console.log('[processPayment] ═══════════════════════════════════════════════════════');
       console.log('[processPayment] Starting payment processing...');
+      console.log('[processPayment] ═══════════════════════════════════════════════════════');
       
+      // ═══════════════════════════════════════════════════════════════════════════════
       // PHASE 1: VERIFY SESSION FRESHNESS
-      // Get current session to ensure auth context is fresh and valid
+      // ═══════════════════════════════════════════════════════════════════════════════
+      // Get current session to ensure auth context is fresh and valid for RLS policy
+      console.log('[processPayment] PHASE 1: Verifying session freshness...');
+      
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       
       if (sessionError) {
-        console.error('[processPayment] Session error:', sessionError.message);
+        console.error('[processPayment] ❌ Session error:', sessionError.message);
         console.error('[processPayment] RLS CHECK FAILED: No valid session found');
         set({ isProcessingPayment: false });
         return false;
       }
       
       if (!sessionData.session) {
-        console.error('[processPayment] No active session found');
+        console.error('[processPayment] ❌ No active session found');
         console.error('[processPayment] RLS CHECK FAILED: Session is null or expired');
         set({ isProcessingPayment: false });
         return false;
       }
       
       const sessionUserId = sessionData.session.user.id;
-      console.log('[processPayment] ✓ Session verified successfully');
-      console.log('[processPayment] Session user ID:', sessionUserId);
-      console.log('[processPayment] Session expires at:', new Date(sessionData.session.expires_at || 0).toISOString());
+      const sessionExpiresAt = new Date(sessionData.session.expires_at || 0);
       
+      console.log('[processPayment] ✓ Session verified successfully');
+      console.log('[processPayment] - Session user ID:', sessionUserId);
+      console.log('[processPayment] - Session expires at:', sessionExpiresAt.toISOString());
+      console.log('[processPayment] - Session is valid:', sessionExpiresAt > new Date());
+      
+      // ═══════════════════════════════════════════════════════════════════════════════
       // PHASE 2: VALIDATE AUTHENTICATED USER
-      // Get authenticated user to confirm identity
+      // ═══════════════════════════════════════════════════════════════════════════════
+      // Get authenticated user to confirm identity matches session
+      console.log('[processPayment] PHASE 2: Validating authenticated user...');
+      
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       
       if (authError || !user) {
-        console.error('[processPayment] Authentication error:', authError?.message || 'No user found');
+        console.error('[processPayment] ❌ Authentication error:', authError?.message || 'No user found');
         console.error('[processPayment] RLS CHECK FAILED: User authentication failed');
         set({ isProcessingPayment: false });
         return false;
       }
 
       const authUserId = user.id;
+      
       console.log('[processPayment] ✓ User authenticated successfully');
-      console.log('[processPayment] Auth user ID:', authUserId);
+      console.log('[processPayment] - Auth user ID:', authUserId);
+      console.log('[processPayment] - User email:', user.email);
 
+      // ═══════════════════════════════════════════════════════════════════════════════
       // PHASE 3: VERIFY USERID CONSISTENCY
+      // ═══════════════════════════════════════════════════════════════════════════════
       // Ensure session.user.id matches user.id for RLS compliance
+      console.log('[processPayment] PHASE 3: Verifying userId consistency...');
+      
       if (sessionUserId !== authUserId) {
-        console.error('[processPayment] USER ID MISMATCH DETECTED');
-        console.error('[processPayment] Session user ID:', sessionUserId);
-        console.error('[processPayment] Auth user ID:', authUserId);
+        console.error('[processPayment] ❌ USER ID MISMATCH DETECTED');
+        console.error('[processPayment] - Session user ID:', sessionUserId);
+        console.error('[processPayment] - Auth user ID:', authUserId);
         console.error('[processPayment] RLS CHECK FAILED: User ID inconsistency');
         set({ isProcessingPayment: false });
         return false;
       }
 
       console.log('[processPayment] ✓ User ID consistency verified');
-      console.log('[processPayment] All auth checks passed - proceeding with transaction');
+      console.log('[processPayment] - Session user ID matches auth user ID');
+      console.log('[processPayment] - All auth checks passed - proceeding with transaction');
 
       const { cart, cartTotal, pointsToEarn, pointsToRedeem } = get();
       
       // Validate cart is not empty
       if (cart.length === 0) {
-        console.error('[processPayment] Cart is empty');
+        console.error('[processPayment] ❌ Cart is empty');
         set({ isProcessingPayment: false });
         return false;
       }
       
-      console.log('[processPayment] Cart total:', cartTotal);
-      console.log('[processPayment] Points to earn:', pointsToEarn);
-      console.log('[processPayment] Points to redeem:', pointsToRedeem);
+      console.log('[processPayment] Cart validation:');
+      console.log('[processPayment] - Cart items:', cart.length);
+      console.log('[processPayment] - Cart total:', cartTotal);
+      console.log('[processPayment] - Points to earn:', pointsToEarn);
+      console.log('[processPayment] - Points to redeem:', pointsToRedeem);
       
       const finalAmount = Math.max(0, cartTotal - (pointsToRedeem * 0.01));
-      console.log('[processPayment] Final amount:', finalAmount);
+      console.log('[processPayment] - Final amount:', finalAmount);
       
+      // ═══════════════════════════════════════════════════════════════════════════════
       // PHASE 4: PREPARE TRANSACTION DATA WITH VERIFIED USERID
+      // ═══════════════════════════════════════════════════════════════════════════════
       // Use the verified authUserId that matches auth.uid() for RLS policy compliance
+      console.log('[processPayment] PHASE 4: Preparing transaction data...');
+      
       const transactionData = {
         userId: authUserId, // CRITICAL: This MUST match auth.uid() for RLS INSERT policy
         amount: finalAmount,
@@ -290,14 +316,31 @@ export const useStore = create<StoreState>((set, get) => ({
       console.log('[processPayment] - timestamp:', transactionData.timestamp);
       console.log('[processPayment] - status:', transactionData.status);
 
+      // ═══════════════════════════════════════════════════════════════════════════════
       // PHASE 5: INSERT TRANSACTION WITH RLS-COMPLIANT USERID
+      // ═══════════════════════════════════════════════════════════════════════════════
       // The authenticated client with fresh session will insert the transaction
-      // RLS policy will check: auth.uid() = userId (both are authUserId)
-      console.log('[processPayment] Attempting transaction insert...');
-      console.log('[processPayment] RLS policy requires: auth.uid() = userId');
-      console.log('[processPayment] auth.uid() =', authUserId);
-      console.log('[processPayment] userId =', transactionData.userId);
-      console.log('[processPayment] Condition satisfied:', authUserId === transactionData.userId);
+      // RLS policy MUST check: auth.uid() = userId (both are authUserId)
+      console.log('[processPayment] ═══════════════════════════════════════════════════════');
+      console.log('[processPayment] PHASE 5: Attempting transaction insert...');
+      console.log('[processPayment] ═══════════════════════════════════════════════════════');
+      console.log('[processPayment] RLS POLICY REQUIREMENT:');
+      console.log('[processPayment] - Policy condition: auth.uid() = userId');
+      console.log('[processPayment] - auth.uid() =', authUserId);
+      console.log('[processPayment] - userId =', transactionData.userId);
+      console.log('[processPayment] - Condition satisfied:', authUserId === transactionData.userId);
+      console.log('[processPayment] ');
+      console.log('[processPayment] REQUIRED SUPABASE RLS POLICY:');
+      console.log('[processPayment] Table: transactions');
+      console.log('[processPayment] Policy type: INSERT');
+      console.log('[processPayment] Policy target: authenticated');
+      console.log('[processPayment] Policy condition: auth.uid() = userId');
+      console.log('[processPayment] ');
+      console.log('[processPayment] EXAMPLE POLICY SQL:');
+      console.log('[processPayment] CREATE POLICY "Users can insert own transactions"');
+      console.log('[processPayment] ON transactions FOR INSERT TO authenticated');
+      console.log('[processPayment] USING (auth.uid() = userId);');
+      console.log('[processPayment] ═══════════════════════════════════════════════════════');
 
       const { data: createdTransaction, error: transactionError } = await supabase
         .from('transactions')
@@ -306,7 +349,9 @@ export const useStore = create<StoreState>((set, get) => ({
         .single();
 
       if (transactionError) {
-        console.error('[processPayment] ❌ Transaction creation FAILED');
+        console.error('[processPayment] ═══════════════════════════════════════════════════════');
+        console.error('[processPayment] ❌ TRANSACTION CREATION FAILED');
+        console.error('[processPayment] ═══════════════════════════════════════════════════════');
         console.error('[processPayment] Error details:', {
           message: transactionError.message,
           details: transactionError.details,
@@ -314,40 +359,76 @@ export const useStore = create<StoreState>((set, get) => ({
           code: transactionError.code,
         });
         
-        // SPECIFIC RLS ERROR DETECTION
+        // SPECIFIC RLS ERROR DETECTION AND GUIDANCE
         const errorMessage = transactionError.message.toLowerCase();
         if (errorMessage.includes('row-level security') || errorMessage.includes('policy')) {
-          console.error('[processPayment] ═══════════════════════════════════════════════════════');
-          console.error('[processPayment] RLS POLICY VIOLATION DETECTED');
-          console.error('[processPayment] ═══════════════════════════════════════════════════════');
-          console.error('[processPayment] The INSERT operation was rejected by Supabase RLS policy');
           console.error('[processPayment] ');
-          console.error('[processPayment] REQUIRED RLS POLICY:');
+          console.error('[processPayment] ╔═══════════════════════════════════════════════════════════════╗');
+          console.error('[processPayment] ║   RLS POLICY VIOLATION DETECTED                               ║');
+          console.error('[processPayment] ╚═══════════════════════════════════════════════════════════════╝');
+          console.error('[processPayment] ');
+          console.error('[processPayment] The INSERT operation was rejected by Supabase RLS policy.');
+          console.error('[processPayment] This means the required RLS policy is either:');
+          console.error('[processPayment] 1. Missing from the transactions table');
+          console.error('[processPayment] 2. Misconfigured (wrong condition)');
+          console.error('[processPayment] 3. Disabled');
+          console.error('[processPayment] ');
+          console.error('[processPayment] ╔═══════════════════════════════════════════════════════════════╗');
+          console.error('[processPayment] ║   REQUIRED RLS POLICY CONFIGURATION                           ║');
+          console.error('[processPayment] ╚═══════════════════════════════════════════════════════════════╝');
+          console.error('[processPayment] ');
           console.error('[processPayment] Table: transactions');
-          console.error('[processPayment] Policy type: INSERT');
-          console.error('[processPayment] Policy condition: auth.uid() = userId');
+          console.error('[processPayment] Policy Name: "Users can insert own transactions" (or similar)');
+          console.error('[processPayment] Policy Type: INSERT');
+          console.error('[processPayment] Policy Target: authenticated');
+          console.error('[processPayment] Policy Condition: auth.uid() = userId');
           console.error('[processPayment] ');
-          console.error('[processPayment] CURRENT STATE:');
-          console.error('[processPayment] - Session user ID:', sessionUserId);
-          console.error('[processPayment] - Auth user ID:', authUserId);
-          console.error('[processPayment] - Transaction userId:', transactionData.userId);
-          console.error('[processPayment] - All IDs match:', sessionUserId === authUserId && authUserId === transactionData.userId);
+          console.error('[processPayment] SQL to create policy:');
+          console.error('[processPayment] ┌───────────────────────────────────────────────────────────────┐');
+          console.error('[processPayment] │ CREATE POLICY "Users can insert own transactions"            │');
+          console.error('[processPayment] │ ON transactions                                               │');
+          console.error('[processPayment] │ FOR INSERT                                                    │');
+          console.error('[processPayment] │ TO authenticated                                              │');
+          console.error('[processPayment] │ USING (auth.uid() = userId);                                  │');
+          console.error('[processPayment] └───────────────────────────────────────────────────────────────┘');
           console.error('[processPayment] ');
-          console.error('[processPayment] TROUBLESHOOTING STEPS:');
-          console.error('[processPayment] 1. Check Supabase Dashboard → Authentication → Policies');
-          console.error('[processPayment] 2. Verify transactions table has INSERT policy for authenticated users');
-          console.error('[processPayment] 3. Ensure policy condition is: auth.uid() = userId');
-          console.error('[processPayment] 4. Example policy SQL:');
-          console.error('[processPayment]    CREATE POLICY "Users can insert own transactions"');
-          console.error('[processPayment]    ON transactions FOR INSERT TO authenticated');
-          console.error('[processPayment]    USING (auth.uid() = userId);');
+          console.error('[processPayment] ╔═══════════════════════════════════════════════════════════════╗');
+          console.error('[processPayment] ║   VERIFICATION STEPS IN SUPABASE DASHBOARD                    ║');
+          console.error('[processPayment] ╚═══════════════════════════════════════════════════════════════╝');
           console.error('[processPayment] ');
-          console.error('[processPayment] If policy exists and IDs match, check:');
-          console.error('[processPayment] - Policy is enabled');
-          console.error('[processPayment] - Policy applies to INSERT operations');
-          console.error('[processPayment] - Policy role is "authenticated"');
-          console.error('[processPayment] - No conflicting policies exist');
-          console.error('[processPayment] ═══════════════════════════════════════════════════════');
+          console.error('[processPayment] 1. Open Supabase Dashboard');
+          console.error('[processPayment] 2. Navigate to: Authentication → Policies');
+          console.error('[processPayment] 3. Select table: transactions');
+          console.error('[processPayment] 4. Check for INSERT policy for authenticated users');
+          console.error('[processPayment] 5. Verify policy condition is: auth.uid() = userId');
+          console.error('[processPayment] 6. Verify policy is ENABLED');
+          console.error('[processPayment] 7. Verify policy applies to INSERT operations');
+          console.error('[processPayment] ');
+          console.error('[processPayment] ╔═══════════════════════════════════════════════════════════════╗');
+          console.error('[processPayment] ║   CURRENT AUTH STATE (FOR DEBUGGING)                          ║');
+          console.error('[processPayment] ╚═══════════════════════════════════════════════════════════════╝');
+          console.error('[processPayment] ');
+          console.error('[processPayment] Session user ID:', sessionUserId);
+          console.error('[processPayment] Auth user ID:', authUserId);
+          console.error('[processPayment] Transaction userId:', transactionData.userId);
+          console.error('[processPayment] All IDs match:', sessionUserId === authUserId && authUserId === transactionData.userId);
+          console.error('[processPayment] Session valid:', sessionExpiresAt > new Date());
+          console.error('[processPayment] ');
+          console.error('[processPayment] If all IDs match and session is valid, the issue is with');
+          console.error('[processPayment] the Supabase RLS policy configuration. Please verify the');
+          console.error('[processPayment] policy exists, is enabled, and has the correct condition.');
+          console.error('[processPayment] ');
+          console.error('[processPayment] ╔═══════════════════════════════════════════════════════════════╗');
+          console.error('[processPayment] ║   ADDITIONAL CHECKS                                           ║');
+          console.error('[processPayment] ╚═══════════════════════════════════════════════════════════════╝');
+          console.error('[processPayment] ');
+          console.error('[processPayment] - Verify no conflicting policies exist');
+          console.error('[processPayment] - Check policy role is "authenticated" (not "anon")');
+          console.error('[processPayment] - Verify userId column exists in transactions table');
+          console.error('[processPayment] - Check userId column type is uuid (matches auth.uid())');
+          console.error('[processPayment] - Test policy with SQL editor: SELECT auth.uid();');
+          console.error('[processPayment] ');
+          console.error('[processPayment] ═══════════════════════════════════════════════════════════════');
         }
         
         set({ isProcessingPayment: false });
@@ -355,17 +436,25 @@ export const useStore = create<StoreState>((set, get) => ({
       }
 
       if (!createdTransaction) {
-        console.error('[processPayment] No transaction data returned');
+        console.error('[processPayment] ❌ No transaction data returned');
         set({ isProcessingPayment: false });
         return false;
       }
 
-      console.log('[processPayment] ✓ Transaction created successfully');
+      console.log('[processPayment] ═══════════════════════════════════════════════════════');
+      console.log('[processPayment] ✓✓✓ TRANSACTION CREATED SUCCESSFULLY ✓✓✓');
+      console.log('[processPayment] ═══════════════════════════════════════════════════════');
       console.log('[processPayment] Transaction ID:', createdTransaction.id);
       console.log('[processPayment] Transaction userId:', createdTransaction.userId);
-      console.log('[processPayment] RLS policy check PASSED');
+      console.log('[processPayment] RLS policy check: PASSED');
+      console.log('[processPayment] Policy condition satisfied: auth.uid() = userId');
+      console.log('[processPayment] ═══════════════════════════════════════════════════════');
 
+      // ═══════════════════════════════════════════════════════════════════════════════
       // PHASE 6: CREATE ORDER ITEMS
+      // ═══════════════════════════════════════════════════════════════════════════════
+      console.log('[processPayment] PHASE 6: Creating order items...');
+      
       const orderItemsToInsert = cart.map(c => ({
         transactionId: createdTransaction.id,
         menuItemId: c.menuItem.id,
@@ -373,7 +462,7 @@ export const useStore = create<StoreState>((set, get) => ({
         subtotal: c.subtotal,
       }));
 
-      console.log('[processPayment] Creating order items:', orderItemsToInsert.length);
+      console.log('[processPayment] Order items to create:', orderItemsToInsert.length);
 
       if (orderItemsToInsert.length > 0) {
         const { error: orderItemsError } = await supabase
@@ -381,7 +470,7 @@ export const useStore = create<StoreState>((set, get) => ({
           .insert(orderItemsToInsert);
 
         if (orderItemsError) {
-          console.error('[processPayment] Order items creation error:', {
+          console.error('[processPayment] ❌ Order items creation error:', {
             message: orderItemsError.message,
             details: orderItemsError.details,
             hint: orderItemsError.hint,
@@ -396,8 +485,11 @@ export const useStore = create<StoreState>((set, get) => ({
         }
       }
 
+      // ═══════════════════════════════════════════════════════════════════════════════
       // PHASE 7: UPDATE USER POINTS
-      console.log('[processPayment] Fetching user points...');
+      // ═══════════════════════════════════════════════════════════════════════════════
+      console.log('[processPayment] PHASE 7: Updating user points...');
+      
       const { data: userData, error: userFetchError } = await supabase
         .from('users')
         .select('currentPoints, totalPointsEarned')
@@ -405,7 +497,7 @@ export const useStore = create<StoreState>((set, get) => ({
         .single();
 
       if (userFetchError) {
-        console.error('[processPayment] User fetch error:', userFetchError.message);
+        console.error('[processPayment] ❌ User fetch error:', userFetchError.message);
         // Continue anyway - transaction was created
       }
 
@@ -413,12 +505,13 @@ export const useStore = create<StoreState>((set, get) => ({
         const newCurrentPoints = Math.max(0, (userData.currentPoints || 0) - pointsToRedeem + pointsToEarn);
         const newTotalPointsEarned = (userData.totalPointsEarned || 0) + pointsToEarn;
 
-        console.log('[processPayment] Updating user points:', {
-          oldPoints: userData.currentPoints,
-          newPoints: newCurrentPoints,
-          oldTotal: userData.totalPointsEarned,
-          newTotal: newTotalPointsEarned,
-        });
+        console.log('[processPayment] Points calculation:');
+        console.log('[processPayment] - Old current points:', userData.currentPoints);
+        console.log('[processPayment] - Points redeemed:', pointsToRedeem);
+        console.log('[processPayment] - Points earned:', pointsToEarn);
+        console.log('[processPayment] - New current points:', newCurrentPoints);
+        console.log('[processPayment] - Old total earned:', userData.totalPointsEarned);
+        console.log('[processPayment] - New total earned:', newTotalPointsEarned);
 
         const { error: userUpdateError } = await supabase
           .from('users')
@@ -429,7 +522,7 @@ export const useStore = create<StoreState>((set, get) => ({
           .eq('id', authUserId);
 
         if (userUpdateError) {
-          console.error('[processPayment] User points update error:', userUpdateError.message);
+          console.error('[processPayment] ❌ User points update error:', userUpdateError.message);
           // Continue anyway - transaction was created
         } else {
           console.log('[processPayment] ✓ User points updated successfully');
@@ -447,6 +540,10 @@ export const useStore = create<StoreState>((set, get) => ({
       console.log('[processPayment] Points earned:', pointsToEarn);
       console.log('[processPayment] Points redeemed:', pointsToRedeem);
       console.log('[processPayment] RLS compliance: VERIFIED');
+      console.log('[processPayment] Session freshness: VERIFIED');
+      console.log('[processPayment] User authentication: VERIFIED');
+      console.log('[processPayment] UserId consistency: VERIFIED');
+      console.log('[processPayment] RLS policy: SATISFIED (auth.uid() = userId)');
       console.log('[processPayment] ═══════════════════════════════════════════════════════');
 
       set({ 
@@ -460,10 +557,14 @@ export const useStore = create<StoreState>((set, get) => ({
       
       return true;
     } catch (error) {
+      console.error('[processPayment] ═══════════════════════════════════════════════════════');
       console.error('[processPayment] ❌ UNEXPECTED ERROR');
+      console.error('[processPayment] ═══════════════════════════════════════════════════════');
       console.error('[processPayment] Error:', error);
       console.error('[processPayment] Error type:', typeof error);
+      console.error('[processPayment] Error message:', error instanceof Error ? error.message : 'Unknown');
       console.error('[processPayment] Error stack:', error instanceof Error ? error.stack : 'N/A');
+      console.error('[processPayment] ═══════════════════════════════════════════════════════');
       set({ isProcessingPayment: false });
       return false;
     }
