@@ -29,6 +29,7 @@ export function Input({
   onRightIconPress,
   containerStyle,
   secureTextEntry,
+  value,
   ...props
 }: InputProps) {
   const theme = useTheme();
@@ -96,6 +97,7 @@ export function Input({
           onFocus={handleFocus}
           onBlur={handleBlur}
           secureTextEntry={actualSecureEntry}
+          value={value}
           {...props}
         />
         

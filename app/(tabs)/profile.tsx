@@ -111,6 +111,7 @@ export default function ProfileScreen() {
   
   const openEditModal = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Populate form with current user data
     setEditForm({
       name: user?.name || '',
       email: user?.email || '',
