@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { User } from '@/types';
 import { supabase } from '@/lib/supabase';
+import * as FileSystem from 'expo-file-system';
+import { decode } from 'base64-arraybuffer';
 
 interface AuthState {
   user: User | null;
@@ -15,6 +17,7 @@ interface AuthState {
   clearError: () => void;
   updateUser: (updates: Partial<User>) => void;
   updateProfile: (updates: { name: string; email: string; phone: string }) => Promise<boolean>;
+  uploadAvatar: (imageUri: string) => Promise<boolean>;
 }
 
 const mapDatabaseUserToUser = (dbUser: any): User => ({
@@ -302,6 +305,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         .eq('id', user.id);
       
       if (updateError) {
+        console.error('Profile update error:', updateError);
         set({
           authError: 'Failed to update profile. Please try again.',
           isLoading: false,
@@ -324,9 +328,108 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       
       return true;
     } catch (error) {
+      console.error('Profile update exception:', error);
       set({
         authError: 'Failed to update profile. Please try again.',
         isLoading: false,
+      });
+      return false;
+    }
+  },
+
+  uploadAvatar: async (imageUri: string): Promise<boolean> => {
+    const { user } = get();
+    
+    if (!user) {
+      console.error('Upload avatar failed: User not found');
+      set({ authError: 'User not found.' });
+      return false;
+    }
+    
+    try {
+      console.log('Starting avatar upload for user:', user.id);
+      
+      // Verify session
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !sessionData.session) {
+        console.error('Upload avatar failed: No valid session', sessionError);
+        set({ authError: 'Session expired. Please log in again.' });
+        return false;
+      }
+      
+      console.log('Session verified for avatar upload');
+      
+      // Read file as base64
+      const base64 = await FileSystem.readAsStringAsync(imageUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      
+      // Generate unique filename
+      const fileExt = imageUri.split('.').pop() || 'jpg';
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+      
+      console.log('Uploading avatar to storage:', fileName);
+      
+      // Upload to Supabase storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, decode(base64), {
+          contentType: `image/${fileExt}`,
+          upsert: true,
+        });
+      
+      if (uploadError) {
+        console.error('Avatar upload error:', uploadError);
+        set({ authError: 'Failed to upload avatar. Please try again.' });
+        return false;
+      }
+      
+      console.log('Avatar uploaded successfully:', uploadData.path);
+      
+      // Get public URL
+      const { data: publicUrlData } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(uploadData.path);
+      
+      const publicUrl = publicUrlData.publicUrl;
+      
+      console.log('Avatar public URL:', publicUrl);
+      
+      // Update user profile with new avatar URL
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({
+          avatar: publicUrl,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id);
+      
+      if (updateError) {
+        console.error('Avatar URL update error:', updateError);
+        set({ authError: 'Failed to update avatar. Please try again.' });
+        return false;
+      }
+      
+      console.log('Avatar URL updated in user profile');
+      
+      // Update local state
+      const updatedUser: User = {
+        ...user,
+        avatar: publicUrl,
+      };
+      
+      set({
+        user: updatedUser,
+        authError: null,
+      });
+      
+      console.log('Avatar upload completed successfully');
+      return true;
+    } catch (error) {
+      console.error('Avatar upload exception:', error);
+      set({
+        authError: 'Failed to upload avatar. Please try again.',
       });
       return false;
     }

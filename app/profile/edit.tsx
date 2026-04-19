@@ -9,12 +9,14 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '@/hooks/useTheme';
 import { useAuthStore } from '@/store/useAuthStore';
 import { Avatar } from '@/components/ui/Avatar';
@@ -26,7 +28,7 @@ export default function EditProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const theme = useTheme();
-  const { user, updateProfile, isLoading } = useAuthStore();
+  const { user, updateProfile, uploadAvatar, isLoading } = useAuthStore();
   
   const [editForm, setEditForm] = useState({
     name: user?.name || '',
@@ -38,6 +40,8 @@ export default function EditProfileScreen() {
     email: '',
     phone: '',
   });
+  const [avatarUri, setAvatarUri] = useState<string | undefined>(user?.avatar);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   
   const fadeAnim = useRef(new Animated.Value(0)).current;
   
@@ -48,6 +52,12 @@ export default function EditProfileScreen() {
       useNativeDriver: true,
     }).start();
   }, []);
+  
+  useEffect(() => {
+    if (user?.avatar) {
+      setAvatarUri(user.avatar);
+    }
+  }, [user?.avatar]);
   
   const handleBack = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -90,6 +100,121 @@ export default function EditProfileScreen() {
     
     setErrors(newErrors);
     return isValid;
+  };
+  
+  const handlePickImage = async () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      
+      // Request permissions
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission Required',
+          'Please grant camera roll permissions to change your avatar.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      
+      // Launch image picker
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+      });
+      
+      if (!result.canceled && result.assets[0]) {
+        const imageUri = result.assets[0].uri;
+        setAvatarUri(imageUri);
+        await handleUploadAvatar(imageUri);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to select image. Please try again.');
+    }
+  };
+  
+  const handleTakePhoto = async () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      
+      // Request permissions
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission Required',
+          'Please grant camera permissions to take a photo.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+      
+      // Launch camera
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+      });
+      
+      if (!result.canceled && result.assets[0]) {
+        const imageUri = result.assets[0].uri;
+        setAvatarUri(imageUri);
+        await handleUploadAvatar(imageUri);
+      }
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert('Error', 'Failed to take photo. Please try again.');
+    }
+  };
+  
+  const handleAvatarPress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    Alert.alert(
+      'Change Avatar',
+      'Choose how you want to update your profile picture',
+      [
+        {
+          text: 'Take Photo',
+          onPress: handleTakePhoto,
+        },
+        {
+          text: 'Choose from Library',
+          onPress: handlePickImage,
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ]
+    );
+  };
+  
+  const handleUploadAvatar = async (imageUri: string) => {
+    try {
+      setIsUploadingAvatar(true);
+      
+      const success = await uploadAvatar(imageUri);
+      
+      if (success) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Alert.alert('Error', 'Failed to upload avatar. Please try again.');
+        setAvatarUri(user?.avatar);
+      }
+    } catch (error) {
+      console.error('Error uploading avatar:', error);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('Error', 'Failed to upload avatar. Please try again.');
+      setAvatarUri(user?.avatar);
+    } finally {
+      setIsUploadingAvatar(false);
+    }
   };
   
   const handleSaveProfile = async () => {
@@ -161,17 +286,20 @@ export default function EditProfileScreen() {
           
           <View style={styles.avatarSection}>
             <Avatar 
-              source={user?.avatar}
+              source={avatarUri}
               name={editForm.name || user?.name}
               size="xl"
             />
             <Pressable 
               style={[styles.editAvatarButton, { backgroundColor: theme.card }, Shadows.md]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              }}
+              onPress={handleAvatarPress}
+              disabled={isUploadingAvatar}
             >
-              <Ionicons name="camera" size={18} color={theme.primary} />
+              {isUploadingAvatar ? (
+                <ActivityIndicator size="small" color={theme.primary} />
+              ) : (
+                <Ionicons name="camera" size={18} color={theme.primary} />
+              )}
             </Pressable>
           </View>
         </LinearGradient>
@@ -251,12 +379,13 @@ export default function EditProfileScreen() {
               onPress={handleCancel}
               variant="outline"
               style={{ flex: 1 }}
-              disabled={isLoading}
+              disabled={isLoading || isUploadingAvatar}
             />
             <Button
               title="Save Changes"
               onPress={handleSaveProfile}
               loading={isLoading}
+              disabled={isUploadingAvatar}
               style={{ flex: 1 }}
             />
           </View>
