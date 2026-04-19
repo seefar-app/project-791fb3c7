@@ -7,6 +7,7 @@ import {
   Pressable,
   Animated,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -17,10 +18,8 @@ import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/hooks/useTheme';
 import { useStore } from '@/store/useStore';
 import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import { MENU_ITEMS } from '@/constants/Data';
-import { Gradients, Shadows } from '@/constants/Colors';
+import { Shadows } from '@/constants/Colors';
 import { CartItem } from '@/types';
 
 const { width, height } = Dimensions.get('window');
@@ -30,9 +29,10 @@ export default function MenuItemScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const theme = useTheme();
-  const { addToCart } = useStore();
+  const { addToCart, menuItems, fetchMenu, isLoadingMenu } = useStore();
   
-  const item = MENU_ITEMS.find(m => m.id === id);
+  // Find item from store's menuItems (fetched from Supabase)
+  const item = menuItems.find(m => m.id === id);
   
   const [quantity, setQuantity] = useState(1);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string[]>>({});
@@ -41,36 +41,66 @@ export default function MenuItemScreen() {
   const slideAnim = useRef(new Animated.Value(50)).current;
   
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }),
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        tension: 50,
-        friction: 9,
-        useNativeDriver: true,
-      }),
-    ]).start();
-    
-    // Initialize default selections for required customizations
-    if (item?.customizations) {
-      const defaults: Record<string, string[]> = {};
-      item.customizations.forEach(cust => {
-        if (cust.required && cust.options.length > 0) {
-          defaults[cust.id] = [cust.options[0].id];
-        }
-      });
-      setSelectedOptions(defaults);
+    // Fetch menu if not already loaded
+    if (menuItems.length === 0) {
+      fetchMenu();
+    }
+  }, []);
+  
+  useEffect(() => {
+    if (item) {
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          tension: 50,
+          friction: 9,
+          useNativeDriver: true,
+        }),
+      ]).start();
+      
+      // Initialize default selections for required customizations
+      if (item.customizations) {
+        const defaults: Record<string, string[]> = {};
+        item.customizations.forEach(cust => {
+          if (cust.required && cust.options.length > 0) {
+            defaults[cust.id] = [cust.options[0].id];
+          }
+        });
+        setSelectedOptions(defaults);
+      }
     }
   }, [item]);
   
+  // Show loading state while fetching menu
+  if (isLoadingMenu) {
+    return (
+      <View style={[styles.container, styles.centerContent, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
+        <Text style={[styles.loadingText, { color: theme.textSecondary }]}>Loading menu...</Text>
+      </View>
+    );
+  }
+  
+  // Show not found if item doesn't exist after loading
   if (!item) {
     return (
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <Text style={{ color: theme.text }}>Item not found</Text>
+      <View style={[styles.container, styles.centerContent, { backgroundColor: theme.background }]}>
+        <Ionicons name="alert-circle-outline" size={64} color={theme.textTertiary} />
+        <Text style={[styles.notFoundTitle, { color: theme.text }]}>Item Not Found</Text>
+        <Text style={[styles.notFoundText, { color: theme.textSecondary }]}>
+          This menu item is not available or has been removed.
+        </Text>
+        <Button
+          title="Back to Menu"
+          onPress={() => router.back()}
+          variant="primary"
+          style={{ marginTop: 24 }}
+        />
       </View>
     );
   }
@@ -112,23 +142,6 @@ export default function MenuItemScreen() {
     }
     
     return total * quantity;
-  };
-  
-  const calculateExtraCost = () => {
-    let extra = 0;
-    
-    if (item.customizations) {
-      item.customizations.forEach(cust => {
-        const selected = selectedOptions[cust.id] || [];
-        cust.options.forEach(opt => {
-          if (selected.includes(opt.id)) {
-            extra += opt.priceModifier;
-          }
-        });
-      });
-    }
-    
-    return extra;
   };
   
   const handleAddToCart = () => {
@@ -268,7 +281,12 @@ export default function MenuItemScreen() {
             
             <View style={[styles.quantityControls, { backgroundColor: theme.backgroundSecondary }]}>
               <Pressable
-                onPress={() => quantity > 1 && setQuantity(q => q - 1)}
+                onPress={() => {
+                  if (quantity > 1) {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setQuantity(q => q - 1);
+                  }
+                }}
                 style={styles.quantityButton}
               >
                 <Ionicons 
@@ -281,7 +299,10 @@ export default function MenuItemScreen() {
               <Text style={[styles.quantityValue, { color: theme.text }]}>{quantity}</Text>
               
               <Pressable
-                onPress={() => setQuantity(q => q + 1)}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setQuantity(q => q + 1);
+                }}
                 style={styles.quantityButton}
               >
                 <Ionicons name="add" size={24} color={theme.text} />
@@ -327,6 +348,26 @@ export default function MenuItemScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  loadingText: {
+    fontSize: 16,
+    marginTop: 16,
+  },
+  notFoundTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    marginTop: 16,
+  },
+  notFoundText: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 24,
   },
   imageContainer: {
     height: height * 0.4,
