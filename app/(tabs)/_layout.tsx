@@ -1,29 +1,30 @@
-import React from 'react';
 import { Tabs } from 'expo-router';
+import React from 'react';
+import { Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { View, StyleSheet, Platform } from 'react-native';
 import { useTheme } from '@/hooks/useTheme';
 import { useStore } from '@/store/useStore';
 
-export default function TabsLayout() {
+export default function TabLayout() {
   const theme = useTheme();
-  const cart = useStore(state => state.cart);
+  const { cart } = useStore();
+  
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
     <Tabs
       screenOptions={{
+        tabBarActiveTintColor: theme.primary,
+        tabBarInactiveTintColor: theme.textSecondary,
         headerShown: false,
         tabBarStyle: {
           backgroundColor: theme.card,
           borderTopColor: theme.border,
           borderTopWidth: 1,
-          height: Platform.OS === 'ios' ? 88 : 68,
+          height: Platform.OS === 'ios' ? 88 : 64,
           paddingTop: 8,
-          paddingBottom: Platform.OS === 'ios' ? 28 : 8,
+          paddingBottom: Platform.OS === 'ios' ? 24 : 8,
         },
-        tabBarActiveTintColor: theme.primary,
-        tabBarInactiveTintColor: theme.textTertiary,
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: '600',
@@ -34,10 +35,8 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color, size, focused }) => (
-            <View style={focused ? styles.activeIconContainer : undefined}>
-              <Ionicons name={focused ? 'home' : 'home-outline'} size={24} color={color} />
-            </View>
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="home" size={size} color={color} />
           ),
         }}
       />
@@ -45,21 +44,33 @@ export default function TabsLayout() {
         name="rewards"
         options={{
           title: 'Rewards',
-          tabBarIcon: ({ color, size, focused }) => (
-            <View style={focused ? styles.activeIconContainer : undefined}>
-              <Ionicons name={focused ? 'gift' : 'gift-outline'} size={24} color={color} />
-            </View>
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="gift" size={size} color={color} />
           ),
+        }}
+      />
+      <Tabs.Screen
+        name="cart"
+        options={{
+          title: 'Cart',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="cart" size={size} color={color} />
+          ),
+          tabBarBadge: cartCount > 0 ? cartCount : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: theme.primary,
+            color: '#fff',
+            fontSize: 10,
+            fontWeight: '700',
+          },
         }}
       />
       <Tabs.Screen
         name="activity"
         options={{
           title: 'Activity',
-          tabBarIcon: ({ color, size, focused }) => (
-            <View style={focused ? styles.activeIconContainer : undefined}>
-              <Ionicons name={focused ? 'receipt' : 'receipt-outline'} size={24} color={color} />
-            </View>
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="receipt" size={size} color={color} />
           ),
         }}
       />
@@ -67,37 +78,11 @@ export default function TabsLayout() {
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color, size, focused }) => (
-            <View style={focused ? styles.activeIconContainer : undefined}>
-              <Ionicons name={focused ? 'person' : 'person-outline'} size={24} color={color} />
-            </View>
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="person" size={size} color={color} />
           ),
         }}
       />
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  activeIconContainer: {
-    backgroundColor: 'rgba(236,72,153,0.1)',
-    padding: 6,
-    borderRadius: 12,
-  },
-  badge: {
-    position: 'absolute',
-    top: -4,
-    right: -8,
-    backgroundColor: '#ec4899',
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  badgeText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '700',
-  },
-});
