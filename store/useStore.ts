@@ -199,13 +199,22 @@ export const useStore = create<StoreState>((set, get) => ({
     try {
       set({ isProcessingPayment: true });
       
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
+      // Get authenticated user
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        console.error('Authentication error:', authError);
         set({ isProcessingPayment: false });
         return false;
       }
 
       const { cart, cartTotal, pointsToEarn, pointsToRedeem } = get();
+      
+      // Validate cart is not empty
+      if (cart.length === 0) {
+        console.error('Cart is empty');
+        set({ isProcessingPayment: false });
+        return false;
+      }
       
       const finalAmount = Math.max(0, cartTotal - (pointsToRedeem * 0.01));
       
@@ -223,7 +232,14 @@ export const useStore = create<StoreState>((set, get) => ({
         .select()
         .single();
 
-      if (transactionError || !transactionData) {
+      if (transactionError) {
+        console.error('Transaction creation error:', transactionError);
+        set({ isProcessingPayment: false });
+        return false;
+      }
+
+      if (!transactionData) {
+        console.error('No transaction data returned');
         set({ isProcessingPayment: false });
         return false;
       }
@@ -242,29 +258,40 @@ export const useStore = create<StoreState>((set, get) => ({
           .insert(orderItemsToInsert);
 
         if (orderItemsError) {
+          console.error('Order items creation error:', orderItemsError);
           set({ isProcessingPayment: false });
           return false;
         }
       }
 
       // Update user points
-      const { data: userData } = await supabase
+      const { data: userData, error: userFetchError } = await supabase
         .from('users')
         .select('currentPoints, totalPointsEarned')
         .eq('id', user.id)
         .single();
 
+      if (userFetchError) {
+        console.error('User fetch error:', userFetchError);
+        // Continue anyway - transaction was created
+      }
+
       if (userData) {
         const newCurrentPoints = Math.max(0, (userData.currentPoints || 0) - pointsToRedeem + pointsToEarn);
         const newTotalPointsEarned = (userData.totalPointsEarned || 0) + pointsToEarn;
 
-        await supabase
+        const { error: userUpdateError } = await supabase
           .from('users')
           .update({
             currentPoints: newCurrentPoints,
             totalPointsEarned: newTotalPointsEarned,
           })
           .eq('id', user.id);
+
+        if (userUpdateError) {
+          console.error('User points update error:', userUpdateError);
+          // Continue anyway - transaction was created
+        }
       }
 
       const newTransaction = mapDatabaseTransactionToTransaction(transactionData);
@@ -281,6 +308,7 @@ export const useStore = create<StoreState>((set, get) => ({
       
       return true;
     } catch (error) {
+      console.error('Payment processing error:', error);
       set({ isProcessingPayment: false });
       return false;
     }

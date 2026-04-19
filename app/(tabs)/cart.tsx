@@ -122,7 +122,16 @@ export default function CartScreen() {
       );
     } else {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Order Failed', 'There was an issue processing your order. Please try again.');
+      Alert.alert(
+        'Order Failed',
+        'There was an issue processing your order. Please try again.',
+        [
+          {
+            text: 'OK',
+            style: 'default',
+          },
+        ]
+      );
     }
   };
 
