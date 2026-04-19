@@ -36,7 +36,6 @@ export default function CartScreen() {
     updateCartItemQuantity,
     removeFromCart,
     clearCart,
-    selectedPaymentMethod,
     processPayment,
     isProcessingPayment,
   } = useStore();
@@ -109,7 +108,7 @@ export default function CartScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert(
         'Order Placed! 🎉',
-        `Your order has been confirmed.\n\nYou earned ${pointsToEarn} points!`,
+        `Your order has been confirmed.\n\nYou earned ${pointsToEarn} points!\n\nPlease pay $${total.toFixed(2)} in cash at the counter.`,
         [
           {
             text: 'View Order',
@@ -123,7 +122,7 @@ export default function CartScreen() {
       );
     } else {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Payment Failed', 'There was an issue processing your payment. Please try again.');
+      Alert.alert('Order Failed', 'There was an issue processing your order. Please try again.');
     }
   };
 
@@ -268,23 +267,20 @@ export default function CartScreen() {
                   <View
                     style={[
                       styles.paymentIcon,
-                      { backgroundColor: theme.primaryLight },
+                      { backgroundColor: theme.successLight },
                     ]}
                   >
-                    <Ionicons name="card" size={20} color={theme.primary} />
+                    <Ionicons name="cash" size={20} color={theme.success} />
                   </View>
                   <View>
                     <Text style={[styles.paymentMethodName, { color: theme.text }]}>
-                      {selectedPaymentMethod?.type.toUpperCase()} •••• {selectedPaymentMethod?.last4Digits}
+                      Cash Payment
                     </Text>
                     <Text style={[styles.paymentMethodExpiry, { color: theme.textSecondary }]}>
-                      Expires {selectedPaymentMethod?.expiryDate}
+                      Pay at counter upon pickup
                     </Text>
                   </View>
                 </View>
-                <Pressable>
-                  <Text style={[styles.changeButton, { color: theme.primary }]}>Change</Text>
-                </Pressable>
               </View>
             </Card>
           </View>
@@ -323,8 +319,8 @@ export default function CartScreen() {
               <View style={[styles.summaryDivider, { backgroundColor: theme.border }]} />
 
               <View style={styles.summaryRow}>
-                <Text style={[styles.totalLabel, { color: theme.text }]}>Total</Text>
-                <Text style={[styles.totalValue, { color: theme.primary }]}>
+                <Text style={[styles.totalLabel, { color: theme.text }]}>Total (Cash)</Text>
+                <Text style={[styles.totalValue, { color: theme.success }]}>
                   ${total.toFixed(2)}
                 </Text>
               </View>
@@ -354,14 +350,14 @@ export default function CartScreen() {
       >
         <View style={styles.bottomBarContent}>
           <View>
-            <Text style={[styles.bottomBarLabel, { color: theme.textSecondary }]}>Total</Text>
+            <Text style={[styles.bottomBarLabel, { color: theme.textSecondary }]}>Pay Cash</Text>
             <Text style={[styles.bottomBarTotal, { color: theme.text }]}>
               ${total.toFixed(2)}
             </Text>
           </View>
 
           <Button
-            title={isProcessingPayment ? 'Processing...' : 'Checkout'}
+            title={isProcessingPayment ? 'Processing...' : 'Place Order'}
             onPress={handleCheckout}
             icon="checkmark-circle"
             iconPosition="left"

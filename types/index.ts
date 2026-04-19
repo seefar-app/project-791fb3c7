@@ -103,7 +103,7 @@ export interface PaymentMethod {
   isDefault: boolean;
 }
 
-export type PaymentType = 'visa' | 'mastercard' | 'amex' | 'apple_pay' | 'google_pay';
+export type PaymentType = 'visa' | 'mastercard' | 'amex' | 'apple_pay' | 'google_pay' | 'cash';
 
 export interface CartItem {
   id: string;
