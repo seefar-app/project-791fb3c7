@@ -31,14 +31,14 @@ export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const theme = useTheme();
-  const { user, logout, updateProfile, isLoading: authLoading } = useAuthStore();
+  const { user, logout, updateProfile, isLoading } = useAuthStore();
   const { paymentMethods } = useStore();
   
   const [showEditModal, setShowEditModal] = useState(false);
   const [editForm, setEditForm] = useState({
-    name: user?.name || '',
-    email: user?.email || '',
-    phone: user?.phone || '',
+    name: '',
+    email: '',
+    phone: '',
   });
   const [errors, setErrors] = useState({
     name: '',
@@ -48,6 +48,7 @@ export default function ProfileScreen() {
   
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(600)).current;
+  const backdropAnim = useRef(new Animated.Value(0)).current;
   
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -59,23 +60,38 @@ export default function ProfileScreen() {
   
   useEffect(() => {
     if (showEditModal) {
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        damping: 20,
-        useNativeDriver: true,
-      }).start();
+      Animated.parallel([
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          damping: 20,
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdropAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start();
     } else {
-      Animated.spring(slideAnim, {
-        toValue: 600,
-        damping: 20,
-        useNativeDriver: true,
-      }).start();
+      Animated.parallel([
+        Animated.spring(slideAnim, {
+          toValue: 600,
+          damping: 20,
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdropAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
     }
   }, [showEditModal]);
   
   const currentTier = TIER_INFO[user?.tierLevel || 'bronze'];
   
   const handleLogout = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     Alert.alert(
       'Sign Out',
       'Are you sure you want to sign out?',
@@ -113,6 +129,7 @@ export default function ProfileScreen() {
     const newErrors = { name: '', email: '', phone: '' };
     let isValid = true;
     
+    // Name validation
     if (!editForm.name.trim()) {
       newErrors.name = 'Name is required';
       isValid = false;
@@ -121,19 +138,24 @@ export default function ProfileScreen() {
       isValid = false;
     }
     
+    // Email validation
     if (!editForm.email.trim()) {
       newErrors.email = 'Email is required';
       isValid = false;
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editForm.email)) {
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editForm.email.trim())) {
       newErrors.email = 'Please enter a valid email';
       isValid = false;
     }
     
+    // Phone validation
     if (!editForm.phone.trim()) {
       newErrors.phone = 'Phone number is required';
       isValid = false;
-    } else if (!/^\+?[\d\s\-()]+$/.test(editForm.phone)) {
+    } else if (!/^[\d\s\-()]+$/.test(editForm.phone.trim())) {
       newErrors.phone = 'Please enter a valid phone number';
+      isValid = false;
+    } else if (editForm.phone.replace(/\D/g, '').length < 10) {
+      newErrors.phone = 'Phone number must be at least 10 digits';
       isValid = false;
     }
     
@@ -176,37 +198,49 @@ export default function ProfileScreen() {
       icon: 'card-outline',
       label: 'Payment Methods',
       sublabel: `${paymentMethods.length} cards saved`,
-      onPress: () => {},
+      onPress: () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      },
     },
     {
       icon: 'notifications-outline',
       label: 'Notifications',
       sublabel: 'Manage push notifications',
-      onPress: () => {},
+      onPress: () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      },
     },
     {
       icon: 'location-outline',
       label: 'Saved Locations',
       sublabel: 'Home, Work, Favorites',
-      onPress: () => {},
+      onPress: () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      },
     },
     {
       icon: 'shield-checkmark-outline',
       label: 'Privacy & Security',
       sublabel: 'Data and security settings',
-      onPress: () => {},
+      onPress: () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      },
     },
     {
       icon: 'help-circle-outline',
       label: 'Help & Support',
       sublabel: 'FAQs and contact us',
-      onPress: () => {},
+      onPress: () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      },
     },
     {
       icon: 'document-text-outline',
       label: 'Terms & Policies',
       sublabel: 'Legal information',
-      onPress: () => {},
+      onPress: () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      },
     },
   ];
 
@@ -255,21 +289,30 @@ export default function ProfileScreen() {
         <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
           {/* Quick Actions */}
           <View style={styles.quickActions}>
-            <Pressable style={[styles.actionButton, { backgroundColor: theme.card }, Shadows.sm]}>
+            <Pressable 
+              style={[styles.actionButton, { backgroundColor: theme.card }, Shadows.sm]}
+              onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+            >
               <View style={[styles.actionIcon, { backgroundColor: theme.primaryLight }]}>
                 <Ionicons name="qr-code" size={22} color={theme.primary} />
               </View>
               <Text style={[styles.actionLabel, { color: theme.text }]}>My QR</Text>
             </Pressable>
             
-            <Pressable style={[styles.actionButton, { backgroundColor: theme.card }, Shadows.sm]}>
+            <Pressable 
+              style={[styles.actionButton, { backgroundColor: theme.card }, Shadows.sm]}
+              onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+            >
               <View style={[styles.actionIcon, { backgroundColor: theme.successLight }]}>
                 <Ionicons name="people" size={22} color={theme.success} />
               </View>
               <Text style={[styles.actionLabel, { color: theme.text }]}>Refer</Text>
             </Pressable>
             
-            <Pressable style={[styles.actionButton, { backgroundColor: theme.card }, Shadows.sm]}>
+            <Pressable 
+              style={[styles.actionButton, { backgroundColor: theme.card }, Shadows.sm]}
+              onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+            >
               <View style={[styles.actionIcon, { backgroundColor: theme.warningLight }]}>
                 <Ionicons name="star" size={22} color={theme.warning} />
               </View>
@@ -319,14 +362,24 @@ export default function ProfileScreen() {
       <Modal
         visible={showEditModal}
         transparent
-        animationType="fade"
+        animationType="none"
         onRequestClose={closeEditModal}
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.modalOverlay}
         >
-          <Pressable style={styles.modalBackdrop} onPress={closeEditModal} />
+          <Animated.View 
+            style={[
+              styles.modalBackdrop,
+              { opacity: backdropAnim }
+            ]}
+          >
+            <Pressable 
+              style={StyleSheet.absoluteFill} 
+              onPress={closeEditModal} 
+            />
+          </Animated.View>
           
           <Animated.View 
             style={[
@@ -355,15 +408,22 @@ export default function ProfileScreen() {
             <ScrollView 
               style={styles.modalForm}
               showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
             >
               <Input
                 label="Full Name"
                 placeholder="Enter your name"
                 icon="person-outline"
                 value={editForm.name}
-                onChangeText={(text) => setEditForm({ ...editForm, name: text })}
+                onChangeText={(text) => {
+                  setEditForm({ ...editForm, name: text });
+                  if (errors.name) {
+                    setErrors({ ...errors, name: '' });
+                  }
+                }}
                 error={errors.name}
                 autoCapitalize="words"
+                editable={!isLoading}
               />
               
               <Input
@@ -371,10 +431,16 @@ export default function ProfileScreen() {
                 placeholder="Enter your email"
                 icon="mail-outline"
                 value={editForm.email}
-                onChangeText={(text) => setEditForm({ ...editForm, email: text })}
+                onChangeText={(text) => {
+                  setEditForm({ ...editForm, email: text });
+                  if (errors.email) {
+                    setErrors({ ...errors, email: '' });
+                  }
+                }}
                 error={errors.email}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                editable={!isLoading}
               />
               
               <Input
@@ -382,9 +448,15 @@ export default function ProfileScreen() {
                 placeholder="Enter your phone"
                 icon="call-outline"
                 value={editForm.phone}
-                onChangeText={(text) => setEditForm({ ...editForm, phone: text })}
+                onChangeText={(text) => {
+                  setEditForm({ ...editForm, phone: text });
+                  if (errors.phone) {
+                    setErrors({ ...errors, phone: '' });
+                  }
+                }}
                 error={errors.phone}
                 keyboardType="phone-pad"
+                editable={!isLoading}
               />
               
               <View style={styles.modalActions}>
@@ -393,11 +465,12 @@ export default function ProfileScreen() {
                   onPress={closeEditModal}
                   variant="outline"
                   style={{ flex: 1 }}
+                  disabled={isLoading}
                 />
                 <Button
                   title="Save Changes"
                   onPress={handleSaveProfile}
-                  loading={authLoading}
+                  loading={isLoading}
                   style={{ flex: 1 }}
                 />
               </View>

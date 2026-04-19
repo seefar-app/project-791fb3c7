@@ -20,7 +20,7 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isAuthenticated: false,
-  isLoading: true,
+  isLoading: false,
   authError: null,
 
   login: async (email: string, password: string): Promise<boolean> => {
@@ -145,17 +145,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   updateProfile: async (updates: { name: string; email: string; phone: string }): Promise<boolean> => {
+    const { user } = get();
+    
+    if (!user) {
+      set({ authError: 'User not found' });
+      return false;
+    }
+    
     try {
       set({ isLoading: true, authError: null });
       
       // Simulate API call
       await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      const { user } = get();
-      if (!user) {
-        set({ authError: 'User not found', isLoading: false });
-        return false;
-      }
       
       // Update avatar URL if name changed
       const newAvatar = updates.name !== user.name
