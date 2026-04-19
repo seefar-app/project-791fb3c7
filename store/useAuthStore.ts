@@ -14,6 +14,7 @@ interface AuthState {
   initializeAuth: () => Promise<void>;
   clearError: () => void;
   updateUser: (updates: Partial<User>) => void;
+  updateProfile: (updates: { name: string; email: string; phone: string }) => Promise<boolean>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -140,6 +141,49 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const { user } = get();
     if (user) {
       set({ user: { ...user, ...updates } });
+    }
+  },
+
+  updateProfile: async (updates: { name: string; email: string; phone: string }): Promise<boolean> => {
+    try {
+      set({ isLoading: true, authError: null });
+      
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      const { user } = get();
+      if (!user) {
+        set({ authError: 'User not found', isLoading: false });
+        return false;
+      }
+      
+      // Update avatar URL if name changed
+      const newAvatar = updates.name !== user.name
+        ? `https://ui-avatars.com/api/?name=${encodeURIComponent(updates.name)}&background=ec4899&color=fff&size=200`
+        : user.avatar;
+      
+      // Update user with new data
+      const updatedUser: User = {
+        ...user,
+        name: updates.name,
+        email: updates.email,
+        phone: updates.phone,
+        avatar: newAvatar,
+      };
+      
+      set({ 
+        user: updatedUser, 
+        isLoading: false,
+        authError: null 
+      });
+      
+      return true;
+    } catch (error) {
+      set({ 
+        authError: 'Failed to update profile. Please try again.', 
+        isLoading: false 
+      });
+      return false;
     }
   },
 }));

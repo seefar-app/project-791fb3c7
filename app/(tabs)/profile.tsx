@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { 
   View, 
   Text, 
@@ -7,17 +7,23 @@ import {
   Pressable,
   Animated,
   Alert,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useTheme } from '@/hooks/useTheme';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useStore } from '@/store/useStore';
 import { Avatar } from '@/components/ui/Avatar';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
+import { Input } from '@/components/ui/Input';
+import { Button } from '@/components/ui/Button';
 import { TIER_INFO } from '@/constants/Data';
 import { Gradients, Shadows } from '@/constants/Colors';
 
@@ -25,10 +31,23 @@ export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const theme = useTheme();
-  const { user, logout } = useAuthStore();
+  const { user, logout, updateProfile, isLoading: authLoading } = useAuthStore();
   const { paymentMethods } = useStore();
   
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: user?.name || '',
+    email: user?.email || '',
+    phone: user?.phone || '',
+  });
+  const [errors, setErrors] = useState({
+    name: '',
+    email: '',
+    phone: '',
+  });
+  
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(600)).current;
   
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -37,6 +56,22 @@ export default function ProfileScreen() {
       useNativeDriver: true,
     }).start();
   }, []);
+  
+  useEffect(() => {
+    if (showEditModal) {
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        damping: 20,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.spring(slideAnim, {
+        toValue: 600,
+        damping: 20,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [showEditModal]);
   
   const currentTier = TIER_INFO[user?.tierLevel || 'bronze'];
   
@@ -58,12 +93,84 @@ export default function ProfileScreen() {
     );
   };
   
+  const openEditModal = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setEditForm({
+      name: user?.name || '',
+      email: user?.email || '',
+      phone: user?.phone || '',
+    });
+    setErrors({ name: '', email: '', phone: '' });
+    setShowEditModal(true);
+  };
+  
+  const closeEditModal = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShowEditModal(false);
+  };
+  
+  const validateForm = (): boolean => {
+    const newErrors = { name: '', email: '', phone: '' };
+    let isValid = true;
+    
+    if (!editForm.name.trim()) {
+      newErrors.name = 'Name is required';
+      isValid = false;
+    } else if (editForm.name.trim().length < 2) {
+      newErrors.name = 'Name must be at least 2 characters';
+      isValid = false;
+    }
+    
+    if (!editForm.email.trim()) {
+      newErrors.email = 'Email is required';
+      isValid = false;
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editForm.email)) {
+      newErrors.email = 'Please enter a valid email';
+      isValid = false;
+    }
+    
+    if (!editForm.phone.trim()) {
+      newErrors.phone = 'Phone number is required';
+      isValid = false;
+    } else if (!/^\+?[\d\s\-()]+$/.test(editForm.phone)) {
+      newErrors.phone = 'Please enter a valid phone number';
+      isValid = false;
+    }
+    
+    setErrors(newErrors);
+    return isValid;
+  };
+  
+  const handleSaveProfile = async () => {
+    if (!validateForm()) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+    
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
+    const success = await updateProfile({
+      name: editForm.name.trim(),
+      email: editForm.email.trim(),
+      phone: editForm.phone.trim(),
+    });
+    
+    if (success) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Success', 'Your profile has been updated successfully!');
+      setShowEditModal(false);
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('Error', 'Failed to update profile. Please try again.');
+    }
+  };
+  
   const menuItems = [
     {
       icon: 'person-outline',
       label: 'Personal Information',
       sublabel: 'Update your profile details',
-      onPress: () => {},
+      onPress: openEditModal,
     },
     {
       icon: 'card-outline',
@@ -207,6 +314,97 @@ export default function ProfileScreen() {
           </Text>
         </Animated.View>
       </ScrollView>
+      
+      {/* Edit Profile Modal */}
+      <Modal
+        visible={showEditModal}
+        transparent
+        animationType="fade"
+        onRequestClose={closeEditModal}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <Pressable style={styles.modalBackdrop} onPress={closeEditModal} />
+          
+          <Animated.View 
+            style={[
+              styles.modalContent,
+              { 
+                backgroundColor: theme.card,
+                transform: [{ translateY: slideAnim }],
+                paddingBottom: insets.bottom + 20,
+              },
+            ]}
+          >
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={[styles.modalTitle, { color: theme.text }]}>
+                  Edit Profile
+                </Text>
+                <Text style={[styles.modalSubtitle, { color: theme.textSecondary }]}>
+                  Update your personal information
+                </Text>
+              </View>
+              <Pressable onPress={closeEditModal} style={styles.closeButton}>
+                <Ionicons name="close" size={24} color={theme.textSecondary} />
+              </Pressable>
+            </View>
+            
+            <ScrollView 
+              style={styles.modalForm}
+              showsVerticalScrollIndicator={false}
+            >
+              <Input
+                label="Full Name"
+                placeholder="Enter your name"
+                icon="person-outline"
+                value={editForm.name}
+                onChangeText={(text) => setEditForm({ ...editForm, name: text })}
+                error={errors.name}
+                autoCapitalize="words"
+              />
+              
+              <Input
+                label="Email Address"
+                placeholder="Enter your email"
+                icon="mail-outline"
+                value={editForm.email}
+                onChangeText={(text) => setEditForm({ ...editForm, email: text })}
+                error={errors.email}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+              
+              <Input
+                label="Phone Number"
+                placeholder="Enter your phone"
+                icon="call-outline"
+                value={editForm.phone}
+                onChangeText={(text) => setEditForm({ ...editForm, phone: text })}
+                error={errors.phone}
+                keyboardType="phone-pad"
+              />
+              
+              <View style={styles.modalActions}>
+                <Button
+                  title="Cancel"
+                  onPress={closeEditModal}
+                  variant="outline"
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  title="Save Changes"
+                  onPress={handleSaveProfile}
+                  loading={authLoading}
+                  style={{ flex: 1 }}
+                />
+              </View>
+            </ScrollView>
+          </Animated.View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -350,5 +548,46 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 12,
     marginTop: 24,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalContent: {
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    paddingTop: 24,
+    paddingHorizontal: 20,
+    maxHeight: '85%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 24,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    marginTop: 4,
+  },
+  closeButton: {
+    padding: 4,
+  },
+  modalForm: {
+    flex: 1,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+    marginBottom: 20,
   },
 });
