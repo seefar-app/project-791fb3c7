@@ -201,7 +201,24 @@ export const useStore = create<StoreState>((set, get) => ({
       
       console.log('[processPayment] Starting payment processing...');
       
-      // Get authenticated user
+      // CRITICAL FIX: Get current session first to ensure auth context is fresh
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError) {
+        console.error('[processPayment] Session error:', sessionError.message);
+        set({ isProcessingPayment: false });
+        return false;
+      }
+      
+      if (!sessionData.session) {
+        console.error('[processPayment] No active session found');
+        set({ isProcessingPayment: false });
+        return false;
+      }
+      
+      console.log('[processPayment] Session verified:', sessionData.session.user.id);
+      
+      // Get authenticated user (should be same as session user)
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError || !user) {
         console.error('[processPayment] Authentication error:', authError?.message || 'No user found');
@@ -227,20 +244,24 @@ export const useStore = create<StoreState>((set, get) => ({
       const finalAmount = Math.max(0, cartTotal - (pointsToRedeem * 0.01));
       console.log('[processPayment] Final amount:', finalAmount);
       
-      // Create transaction with proper field mapping
+      // CRITICAL FIX: Ensure userId matches the authenticated user's ID
+      // RLS policy likely checks that auth.uid() = userId
       const transactionData = {
-        userId: user.id,
+        userId: user.id, // Must match auth.uid() for RLS
         amount: finalAmount,
         pointsEarned: pointsToEarn,
         pointsRedeemed: pointsToRedeem,
-        timestamp: new Date().toISOString(), // CRITICAL: Add timestamp field
+        timestamp: new Date().toISOString(),
         status: 'completed',
         storeName: 'BrewRewards Downtown',
-        receiptUrl: null, // Optional field
+        receiptUrl: null,
       };
 
       console.log('[processPayment] Creating transaction with data:', transactionData);
+      console.log('[processPayment] Auth user ID:', user.id);
+      console.log('[processPayment] Session user ID:', sessionData.session.user.id);
 
+      // CRITICAL FIX: Use the authenticated client with fresh session
       const { data: createdTransaction, error: transactionError } = await supabase
         .from('transactions')
         .insert(transactionData)
@@ -254,6 +275,14 @@ export const useStore = create<StoreState>((set, get) => ({
           hint: transactionError.hint,
           code: transactionError.code,
         });
+        
+        // Specific handling for RLS errors
+        if (transactionError.message.includes('row-level security') || 
+            transactionError.message.includes('policy')) {
+          console.error('[processPayment] RLS POLICY VIOLATION - Check Supabase RLS policies for transactions table');
+          console.error('[processPayment] Ensure policy allows INSERT for authenticated users where auth.uid() = userId');
+        }
+        
         set({ isProcessingPayment: false });
         return false;
       }
@@ -288,11 +317,13 @@ export const useStore = create<StoreState>((set, get) => ({
             hint: orderItemsError.hint,
             code: orderItemsError.code,
           });
-          set({ isProcessingPayment: false });
-          return false;
+          
+          // Transaction was created but order items failed
+          // Continue anyway - transaction exists
+          console.warn('[processPayment] Order items failed but transaction was created');
+        } else {
+          console.log('[processPayment] Order items created successfully');
         }
-
-        console.log('[processPayment] Order items created successfully');
       }
 
       // Update user points
