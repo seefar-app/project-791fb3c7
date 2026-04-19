@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import { User } from '@/types';
 import { supabase } from '@/lib/supabase';
 import * as FileSystem from 'expo-file-system';
-import { decode } from 'base64-arraybuffer';
 
 interface AuthState {
   user: User | null;
@@ -31,6 +30,16 @@ const mapDatabaseUserToUser = (dbUser: any): User => ({
   currentPoints: dbUser.currentPoints,
   tierLevel: dbUser.tierLevel,
 });
+
+// Helper function to convert base64 to ArrayBuffer using Uint8Array
+const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes.buffer;
+};
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
@@ -365,6 +374,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         encoding: FileSystem.EncodingType.Base64,
       });
       
+      // Convert base64 to ArrayBuffer using native Uint8Array
+      const arrayBuffer = base64ToArrayBuffer(base64);
+      
       // Generate unique filename
       const fileExt = imageUri.split('.').pop() || 'jpg';
       const fileName = `${user.id}/${Date.now()}.${fileExt}`;
@@ -374,7 +386,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Upload to Supabase storage
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('avatars')
-        .upload(fileName, decode(base64), {
+        .upload(fileName, arrayBuffer, {
           contentType: `image/${fileExt}`,
           upsert: true,
         });
