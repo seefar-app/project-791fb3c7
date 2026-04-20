@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { User } from '@/types';
 import { supabase } from '@/lib/supabase';
-import * as FileSystem from 'expo-file-system';
+import { File } from 'expo-file-system';
 
 interface AuthState {
   user: User | null;
@@ -369,10 +369,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       
       console.log('Session verified for avatar upload');
       
-      // Read image as base64 using CORRECT API
-      const base64 = await FileSystem.readAsStringAsync(imageUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+      // Read image as base64 using CORRECT instance API
+      const file = new File(imageUri);
+      const base64 = await file.base64();
       
       console.log('Image read as base64, length:', base64.length);
       
