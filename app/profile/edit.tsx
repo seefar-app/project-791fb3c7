@@ -40,7 +40,6 @@ export default function EditProfileScreen() {
     email: '',
     phone: '',
   });
-  const [avatarUri, setAvatarUri] = useState<string | undefined>(user?.avatar);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -52,12 +51,6 @@ export default function EditProfileScreen() {
       useNativeDriver: true,
     }).start();
   }, []);
-  
-  useEffect(() => {
-    if (user?.avatar) {
-      setAvatarUri(user.avatar);
-    }
-  }, [user?.avatar]);
   
   const handleBack = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -128,7 +121,6 @@ export default function EditProfileScreen() {
       
       if (!result.canceled && result.assets[0]) {
         const imageUri = result.assets[0].uri;
-        setAvatarUri(imageUri);
         await handleUploadAvatar(imageUri);
       }
     } catch (error) {
@@ -162,7 +154,6 @@ export default function EditProfileScreen() {
       
       if (!result.canceled && result.assets[0]) {
         const imageUri = result.assets[0].uri;
-        setAvatarUri(imageUri);
         await handleUploadAvatar(imageUri);
       }
     } catch (error) {
@@ -202,16 +193,15 @@ export default function EditProfileScreen() {
       
       if (success) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert('Success', 'Your avatar has been updated!');
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         Alert.alert('Error', 'Failed to upload avatar. Please try again.');
-        setAvatarUri(user?.avatar);
       }
     } catch (error) {
       console.error('Error uploading avatar:', error);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert('Error', 'Failed to upload avatar. Please try again.');
-      setAvatarUri(user?.avatar);
     } finally {
       setIsUploadingAvatar(false);
     }
@@ -286,7 +276,7 @@ export default function EditProfileScreen() {
           
           <View style={styles.avatarSection}>
             <Avatar 
-              source={avatarUri}
+              source={user?.avatar}
               name={editForm.name || user?.name}
               size="xl"
             />

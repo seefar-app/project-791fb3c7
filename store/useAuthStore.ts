@@ -369,7 +369,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       
       console.log('Session verified for avatar upload');
       
-      // Read file as base64 using CORRECT FileSystem.EncodingType.Base64
+      // Read image as base64 using CORRECT API
       const base64 = await FileSystem.readAsStringAsync(imageUri, {
         encoding: FileSystem.EncodingType.Base64,
       });
@@ -408,9 +408,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         .from('avatars')
         .getPublicUrl(uploadData.path);
       
-      const publicUrl = publicUrlData.publicUrl;
+      // Add cache busting timestamp to force image refresh
+      const timestamp = Date.now();
+      const publicUrl = `${publicUrlData.publicUrl}?t=${timestamp}`;
       
-      console.log('Avatar public URL:', publicUrl);
+      console.log('Avatar public URL with cache busting:', publicUrl);
       
       // Update user profile with new avatar URL
       const { error: updateError } = await supabase
@@ -429,7 +431,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       
       console.log('Avatar URL updated in user profile');
       
-      // Update local state
+      // Update local state immediately with cache-busted URL
       const updatedUser: User = {
         ...user,
         avatar: publicUrl,
@@ -440,7 +442,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         authError: null,
       });
       
-      console.log('Avatar upload completed successfully');
+      console.log('Avatar upload completed successfully with immediate state update');
       return true;
     } catch (error) {
       console.error('Avatar upload exception:', error);

@@ -62,17 +62,34 @@ export function Avatar({
     away: '#f59e0b',
   };
 
+  // Add cache busting to source URL if it doesn't already have a timestamp
+  const getCacheBustedSource = () => {
+    if (!source) return undefined;
+    
+    // If URL already has timestamp parameter, use as is
+    if (source.includes('?t=')) {
+      return source;
+    }
+    
+    // Add timestamp parameter to force cache refresh
+    const separator = source.includes('?') ? '&' : '?';
+    return `${source}${separator}t=${Date.now()}`;
+  };
+
+  const imageSource = getCacheBustedSource();
+
   return (
     <View style={[{ width: currentSize, height: currentSize }, style]}>
-      {source ? (
+      {imageSource ? (
         <Image
-          source={{ uri: source }}
+          source={{ uri: imageSource }}
           style={[
             styles.image,
             { width: currentSize, height: currentSize, borderRadius: currentSize / 2 },
           ]}
           contentFit="cover"
           transition={200}
+          cachePolicy="none"
         />
       ) : (
         <View
